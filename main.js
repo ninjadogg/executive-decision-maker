@@ -27,6 +27,7 @@ const CHASE = [0, 1, 3, 5, 4, 2];
 const W = 4.2, D = 4.0, HW = 1.5, FOOT = 0.05;
 const BASE_TOP = FOOT + HW;
 const INSET = 0.1, STRIP = 0.4, BACK_T = 0.12, WALL_BEV = 0.03;
+const SEAT = WALL_BEV + 0.01;             // walls and lip sit this far into the wood
 const LIP = 0.14, LIP_D = 0.07;            // black front lip below the glass's low edge
 const GAP = 0.09, GLASS_T = 0.03;         // LEDs sit on a backplane under a floating smoked-glass sheet
 const GLASS_TOP = GAP + GLASS_T;
@@ -44,6 +45,9 @@ const SWITCH = { x: -1.15, z: 1.62, travel: 0.12 };
 const ASK = { x: 1.2, z: 1.62 };
 
 const FONT = '"Helvetica Neue", Helvetica, Arial, sans-serif';
+// Wide geometric sans for the title, like the original's Avant Garde-style lettering.
+const TITLE_FONT = `Montserrat, ${FONT}`;
+const LOGO_FONT = `"Montserrat Alternates", ${FONT}`;
 const LITE = matchMedia('(pointer: coarse)').matches;
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rand = Math.random;
@@ -58,6 +62,7 @@ try {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 } catch (e) {
   document.getElementById('fail').style.display = 'grid';
+  window.__loader?.done();
   throw e;
 }
 const DPR = Math.min(devicePixelRatio, LITE ? 1.5 : 2);
@@ -68,6 +73,24 @@ renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.VSMShadowMap;
 RectAreaLightUniformsLib.init();
+
+// ---------- loading ----------
+// The pixel loading screen (inline in index.html) shows progress; the heavy
+// texture work below yields a couple of frames between stages so it can animate.
+const loader = window.__loader || { set() {}, done: () => Promise.resolve() };
+const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+async function stage(progress, message) {
+  loader.set(progress, message);
+  await nextFrame();
+  await nextFrame();
+}
+await stage(0.06, 'Loading the typefaces');
+const fontSheet = document.getElementById('gfonts');
+await Promise.race([
+  (fontSheet?.sheet ? Promise.resolve() : new Promise((r) => fontSheet?.addEventListener('load', r, { once: true })))
+    .then(() => Promise.all(['500 40px Montserrat', '800 40px "Montserrat Alternates"'].map((f) => document.fonts.load(f)))),
+  new Promise((r) => setTimeout(r, 4000)),
+]).catch(() => {});
 
 // ---------- scene ----------
 const scene = new THREE.Scene();
@@ -276,12 +299,19 @@ function printCanvas() {
   g.textBaseline = 'middle';
   const spaced = (px) => { if ('letterSpacing' in g) g.letterSpacing = `${px}px`; };
 
-  let [x, y] = toPx(0, -1.5);
-  g.font = `400 ${u(0.32)}px ${FONT}`;
-  spaced(u(0.012));
+  // On the unit both title lines run the same width, a bit over half the panel.
+  const fitFont = (text, weight, family, width, track) => {
+    g.font = `${weight} 100px ${family}`;
+    spaced(100 * track);
+    const size = (100 * u(width)) / g.measureText(text).width;
+    g.font = `${weight} ${size}px ${family}`;
+    spaced(size * track);
+  };
+  let [x, y] = toPx(0, -1.52);
+  fitFont('EXECUTIVE', 500, TITLE_FONT, 1.74, 0.02);
   g.fillText('EXECUTIVE', x, y);
-  [x, y] = toPx(0, -1.2);
-  g.font = `400 ${u(0.185)}px ${FONT}`;
+  [x, y] = toPx(0, -1.21);
+  fitFont('DECISION MAKER', 500, TITLE_FONT, 1.74, 0.03);
   g.fillText('DECISION MAKER', x, y);
 
   spaced(u(0.006));
@@ -303,29 +333,72 @@ function printCanvas() {
   [x, y] = toPx(ASK.x, ASK.z - 0.27);
   g.fillText('ASK', x, y);
 
-  // Brand wordmark, hand-set to follow the original's heavy, steeply slanted,
-  // tightly spaced lettering (drawn here, not copied from the logo artwork).
-  [x, y] = toPx(0.02, SWITCH.z - 0.02);
-  g.save();
-  g.translate(x, y);
-  g.transform(0.94, 0, -0.34, 1, 0, 0);    // condense a touch and slant ~19 degrees
-  g.font = `900 ${u(0.19)}px "Arial Black", "Helvetica Neue", Arial, sans-serif`;
-  spaced(-u(0.008));
-  g.fillText('Radio Shack', 0, 0);
-  g.restore();
+  [x, y] = toPx(0.08, SWITCH.z - 0.02);
+  drawWordmark(g, x, y, u(1.43));
   return c;
 }
 
+// The 1970s wordmark, set by hand from a photo of the unit (not copied from
+// logo artwork): heavy geometric lowercase, a dotless i, and the S drawn as a
+// tall integral-sign stroke, all upright. Centred on (cx, cy), width wide.
+function drawWordmark(g, cx, cy, width) {
+  const F = 100;
+  g.save();
+  if ('letterSpacing' in g) g.letterSpacing = '0px';
+  g.font = `800 ${F}px ${LOGO_FONT}`;
+  g.textBaseline = 'alphabetic';            // measure from the baseline, not the caller's setting
+  g.textAlign = 'left';
+  const capH = g.measureText('H').actualBoundingBoxAscent;
+  const xH = g.measureText('x').actualBoundingBoxAscent;
+  const l = g.measureText('l');
+  const stem = l.actualBoundingBoxRight + l.actualBoundingBoxLeft;
+  const track = -0.025 * F;
+  const S_W = 0.72 * F;
+  const glyphs = ['R', 'a', 'd', 'ı', 'o', ' ', 'S', 'h', 'a', 'c', 'k'];
+  const advance = (ch) => (ch === 'S' ? S_W : ch === 'ı' ? l.width : g.measureText(ch).width) + track;
+  const total = glyphs.reduce((sum, ch) => sum + advance(ch), -track);
+  const k = width / total;
+  g.translate(cx - (total * k) / 2, cy + (capH * k) / 2);
+  g.scale(k, k);
+  let pen = 0;
+  for (const ch of glyphs) {
+    if (ch === 'ı') {
+      g.fillRect(pen + (l.width - stem) / 2, -xH, stem, xH);
+    } else if (ch === 'S') {
+      // A calligraphic stroke: discs stamped along a centreline, full stem weight
+      // in the slanted middle, tapering into the right-curling top hook and the
+      // left-curling bottom hook.
+      const segs = [
+        [[0.6, -capH + 0.1 * F], [0.6, -capH - 0.04 * F], [0.34, -capH - 0.06 * F], [0.35, -capH + 0.2 * F]],
+        [[0.35, -capH + 0.2 * F], [0.33, -capH * 0.6], [0.31, -capH * 0.4], [0.29, -0.2 * F]],
+        [[0.29, -0.2 * F], [0.28, 0.04 * F], [0.06, 0.05 * F], [0.06, -0.12 * F]],
+      ].map((seg) => seg.map(([x, y]) => [x < 1 ? x * F + 0.06 * F : x, y]));
+      const bez = ([a, b, c, d], t) => {
+        const m = 1 - t;
+        return [0, 1].map((k) => m * m * m * a[k] + 3 * m * m * t * b[k] + 3 * m * t * t * c[k] + t * t * t * d[k]);
+      };
+      segs.forEach((seg, si) => {
+        for (let n = 0; n <= 80; n++) {
+          const t = n / 80;
+          const [px2, py2] = bez(seg, t);
+          // 0 at the hook tips, 1 along the stem
+          const weight = si === 1 ? 1 : si === 0 ? 0.55 + 0.45 * t : 1 - 0.45 * t;
+          g.beginPath();
+          g.arc(pen + px2, py2, (stem / 2) * weight, 0, Math.PI * 2);
+          g.fill();
+        }
+      });
+    } else if (ch !== ' ') {
+      g.fillText(ch, pen, 0);
+    }
+    pen += advance(ch);
+  }
+  g.restore();
+}
+
 function faceplateMaps() {
-  // Ink layer for the top of the glass: the print, the switch slot, a little dust.
+  // Ink layer for the top of the glass: the print and a little dust.
   const [c, g] = makeCanvas(CW, CH);
-  const [sx, sy] = toPx(SWITCH.x - SWITCH.travel - 0.09, SWITCH.z - 0.07);
-  roundRect(g, sx, sy, u(2 * SWITCH.travel + 0.18), u(0.14), u(0.06));
-  g.fillStyle = '#050505';
-  g.fill();
-  g.lineWidth = u(0.008);
-  g.strokeStyle = '#3a3a3a';
-  g.stroke();
   g.drawImage(printCanvas(), 0, 0);
   // A faint film of settled dust along the walls and back edge, then the specks.
   for (const [x0, y0, x1, y1] of [[0, 0, u(0.25), 0], [CW, 0, CW - u(0.25), 0], [0, 0, 0, u(0.3)]]) {
@@ -474,6 +547,7 @@ function glowTexture() {
 // every face (each takes its own offset); the top gets a dusty copy.
 const WOOD_W = TEX_MAX, WOOD_H = WOOD_W / 2;
 const WOOD_PX = WOOD_W / W;                 // the sheet's width spans the box width
+await stage(0.16, 'Sanding the rosewood');
 const wood = (() => {
   const src = rosewood(WOOD_W, WOOD_H);
   const [b, bg] = makeCanvas(WOOD_W, WOOD_H);
@@ -500,6 +574,52 @@ const wood = (() => {
   return { map: tex(src, true), dusty: tex(d, true), bump: tex(b, false), rough: tex(r, false) };
 })();
 
+// ---------- dust ----------
+// Settled dust on up-facing surfaces: a mottled, matte film plus specks, laid
+// down in world space so it ignores UVs. buildUp adds a heavier band on the
+// wood ledge against the aluminum housing, where a duster never quite reaches.
+const DUST_COLOR = new THREE.Color(0.5, 0.48, 0.45);
+// Housing footprint on the wood top: xmin, xmax, zmin, zmax.
+const HOUSING = new THREE.Vector4(-(W / 2 - INSET), W / 2 - INSET, -(D / 2 - INSET), D / 2 - 0.03);
+function addDust(material, { amount = 0.15, buildUp = 0 } = {}) {
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, {
+      uDust: { value: amount }, uDustEdge: { value: buildUp }, uDustColor: { value: DUST_COLOR }, uHousing: { value: HOUSING },
+    });
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vDustPos;\nvarying vec3 vDustN;')
+      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvDustPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvDustN = normalize(mat3(modelMatrix) * objectNormal);');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vDustPos;
+varying vec3 vDustN;
+uniform float uDust, uDustEdge;
+uniform vec3 uDustColor;
+uniform vec4 uHousing;
+float dustHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float dustNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(dustHash(i), dustHash(i + vec2(1.0, 0.0)), f.x), mix(dustHash(i + vec2(0.0, 1.0)), dustHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float dustAmount() {
+  float up = smoothstep(0.55, 0.95, normalize(vDustN).y);
+  vec2 p = vDustPos.xz;
+  float mottle = 0.5 * dustNoise(p * 9.0) + 0.3 * dustNoise(p * 31.0) + 0.2 * dustNoise(p * 97.0);
+  float specks = step(0.992, dustHash(floor(p * 900.0)));
+  vec2 d = max(vec2(uHousing.x - p.x, uHousing.z - p.y), vec2(p.x - uHousing.y, p.y - uHousing.w));
+  float outside = max(d.x, d.y);         // distance out from the housing's walls
+  float edge = uDustEdge * (1.0 - smoothstep(0.0, 0.07, outside)) * step(-0.01, outside);
+  return clamp(up * (uDust * (0.35 + 0.9 * mottle) + edge * (0.6 + 0.6 * mottle) + specks * 0.8 * (uDust + edge)), 0.0, 0.85);
+}`)
+      .replace('#include <map_fragment>', '#include <map_fragment>\nfloat dust = dustAmount();\ndiffuseColor.rgb = mix(diffuseColor.rgb, uDustColor, dust);')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 1.0, dust);')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 0.0, dust);');
+  };
+  material.customProgramCacheKey = () => `dust-${amount}-${buildUp}`;
+  return material;
+}
+
 // faceW x faceH in world units, so the grain keeps its true scale on every face.
 function vinyl(faceW, faceH, { dusty = false } = {}) {
   const ox = rand(), oy = rand();
@@ -509,30 +629,31 @@ function vinyl(faceW, faceH, { dusty = false } = {}) {
     c.offset.set(ox, oy);
     return c;
   };
-  return new THREE.MeshPhysicalMaterial({
+  return addDust(new THREE.MeshPhysicalMaterial({
     map: fit(dusty ? wood.dusty : wood.map), bumpMap: fit(wood.bump), bumpScale: 0.8,
     roughness: 1, roughnessMap: fit(wood.rough),
     clearcoat: 0.06, clearcoatRoughness: 0.6,
     sheen: 0.25, sheenRoughness: 0.8, sheenColor: new THREE.Color(0x6a2a14),
-  });
+  }), { amount: 0.12, buildUp: 0.95 });
 }
-const blackPlastic = new THREE.MeshPhysicalMaterial({
+const blackPlastic = addDust(new THREE.MeshPhysicalMaterial({
   color: 0x0e0e0e, roughness: 0.42, clearcoat: 0.25, clearcoatRoughness: 0.5,
   bumpMap: toTexture(noiseCanvas(256, '#808080', 9000, 0.5), { repeat: 6, color: false }), bumpScale: 0.15,
-});
+}), { amount: 0.14 });
 // Satin brushed aluminum. UVs are box-projected (see brushedUVs) so v always
 // follows the brushing; anisotropy works along u, across the brush lines, which
 // is how real brushed metal stretches its highlights.
 const BRUSH_UV = 0.35;                      // UV per world unit
+await stage(0.42, 'Brushing the aluminum');
 const brushedSrc = brushedCanvas(TEX_MAX / 2, TEX_MAX, '#d4cfc6');
 sprinkleDust(brushedSrc.getContext('2d'), brushedSrc.width, brushedSrc.height, 2600,
   { color: '238,234,226', fibres: 3, scale: brushedSrc.width * BRUSH_UV / 300 });
 const brushed = toTexture(brushedSrc, { repeat: 1 });
 const brushedBump = toTexture(brushedSrc, { repeat: 1, color: false });
-const aluminum = new THREE.MeshPhysicalMaterial({
+const aluminum = addDust(new THREE.MeshPhysicalMaterial({
   map: brushed, bumpMap: brushedBump, bumpScale: 0.15, metalness: 1, roughness: 0.3,
   anisotropy: 0.9, anisotropyRotation: 0, envMapIntensity: 1.8,
-});
+}), { amount: 0.1 });
 
 // Box-projected UVs from each vertex's dominant normal: faces looking along z
 // brush along x; side faces and tops brush along z.
@@ -598,10 +719,10 @@ const wallTopY = (z) => backplaneY(z) + (GLASS_TOP + 0.02) / Math.cos(SLOPE);
 
 // Side walls: chamfered aluminum wedges. Profile is (-z, y), extruded along x.
 const sideShape = new THREE.Shape([
-  new THREE.Vector2(-Z_OUT_FRONT, BASE_TOP),
+  new THREE.Vector2(-Z_OUT_FRONT, BASE_TOP - SEAT),
   new THREE.Vector2(-Z_OUT_FRONT, wallTopY(Z_OUT_FRONT)),
   new THREE.Vector2(-Z_OUT_BACK, wallTopY(Z_OUT_BACK)),
-  new THREE.Vector2(-Z_OUT_BACK, BASE_TOP),
+  new THREE.Vector2(-Z_OUT_BACK, BASE_TOP - SEAT),
 ]);
 const sideGeo = new THREE.ExtrudeGeometry(sideShape, {
   depth: STRIP - 2 * WALL_BEV, bevelEnabled: true, bevelSize: WALL_BEV, bevelThickness: WALL_BEV, bevelSegments: 2, curveSegments: 1,
@@ -614,15 +735,15 @@ for (const s of [-1, 1]) {
   wall.castShadow = wall.receiveShadow = true;
   cabinet.add(wall);
 }
-const backH = wallTopY(Z_OUT_BACK) - BASE_TOP;
+const backH = wallTopY(Z_OUT_BACK) - BASE_TOP + SEAT;
 const backWall = new THREE.Mesh(brushedUVs(new RoundedBoxGeometry(W - 2 * INSET, backH, BACK_T + WALL_BEV, 3, WALL_BEV)), aluminum);
-backWall.position.set(0, BASE_TOP + backH / 2, Z_OUT_BACK - WALL_BEV + (BACK_T + WALL_BEV) / 2);
+backWall.position.set(0, BASE_TOP - SEAT + backH / 2, Z_OUT_BACK - WALL_BEV + (BACK_T + WALL_BEV) / 2);
 backWall.castShadow = backWall.receiveShadow = true;
 cabinet.add(backWall);
 
-const lipH = backplaneY(Z_FRONT) + GLASS_TOP + 0.01 - BASE_TOP;
+const lipH = backplaneY(Z_FRONT) + GLASS_TOP + 0.01 - BASE_TOP + SEAT;
 const lip = new THREE.Mesh(new RoundedBoxGeometry(PW + 0.04, lipH, LIP_D + WALL_BEV, 2, 0.012), blackPlastic);
-lip.position.set(0, BASE_TOP + lipH / 2, Z_FRONT + (LIP_D + WALL_BEV) / 2);
+lip.position.set(0, BASE_TOP - SEAT + lipH / 2, Z_FRONT + (LIP_D + WALL_BEV) / 2);
 lip.castShadow = lip.receiveShadow = true;
 cabinet.add(lip);
 
@@ -637,8 +758,10 @@ cabinet.add(top);
 // LEDs are mounted on, and the glass floats GAP above it.
 const plate = new THREE.Group();
 top.add(plate);
+await stage(0.52, 'Screen-printing the faceplate');
 const fp = faceplateMaps();
 
+await stage(0.66, 'Soldering the circuit board');
 const pcb = pcbMaps();
 const board = new THREE.Mesh(
   new THREE.PlaneGeometry(PW, PL),
@@ -754,7 +877,16 @@ const leds = WINDOWS.map((w) => {
   glow.rotation.x = -Math.PI / 2;
   glow.position.set(x, 0.003, z);
   plate.add(glow);
-  return { text: w.text, mat, glowMat, bloomMat, pos: new THREE.Vector3(x, 0.1, z), level: 0, target: 0 };
+  // The halo you see is light scattering in the smoked acrylic, so it lives on
+  // the glass as geometry: anything in front of it (the lip, a wall) hides it,
+  // which a screen-space blur can't do.
+  const haloMat = glowMat.clone();
+  const halo = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.5), haloMat);
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.set(x, GLASS_TOP + 0.003, z);
+  halo.userData.bloomHide = true;
+  plate.add(halo);
+  return { text: w.text, mat, glowMat, haloMat, bloomMat, pos: new THREE.Vector3(x, 0.1, z), level: 0, target: 0 };
 });
 // Short range: it only reaches the board, resistor and paint inside its own window
 // (point lights cast no shadows here, so a longer reach would leak onto the walls).
@@ -788,15 +920,60 @@ askCap.castShadow = true;
 plate.add(askCap);
 const ASK_UP = GLASS_TOP, ASK_DOWN = GLASS_TOP - 0.1;
 
-// ON/OFF slide switch
-const NUB_UP = GLASS_TOP + 0.065, NUB_DOWN = GLASS_TOP + 0.03;
-const nub = new THREE.Mesh(
-  new THREE.CapsuleGeometry(0.065, 0.05, 8, 20),
-  new THREE.MeshPhysicalMaterial({ color: 0x141414, roughness: 0.3, clearcoat: 0.8 })
-);
-nub.rotation.x = Math.PI / 2;
+// ON/OFF slide switch: a raised black bezel round a dark slot, and a knurled
+// round knob riding in it.
+function pillShape(w, h) {
+  const r = h / 2, s = new THREE.Shape();
+  s.moveTo(-w / 2 + r, -r);
+  s.lineTo(w / 2 - r, -r);
+  s.absarc(w / 2 - r, 0, r, -Math.PI / 2, Math.PI / 2, false);
+  s.lineTo(-w / 2 + r, r);
+  s.absarc(-w / 2 + r, 0, r, Math.PI / 2, Math.PI * 1.5, false);
+  return s;
+}
+const SLOT_W = 2 * SWITCH.travel + 0.15, SLOT_H = 0.13, BEZEL_W = 0.035, SLOT_DEPTH = 0.035;
+const bezelShape = pillShape(SLOT_W + 2 * BEZEL_W, SLOT_H + 2 * BEZEL_W);
+bezelShape.holes.push(pillShape(SLOT_W, SLOT_H));
+const bezelGeo = new THREE.ExtrudeGeometry(bezelShape, {
+  depth: SLOT_DEPTH, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.006, bevelSegments: 3, curveSegments: 24,
+});
+bezelGeo.rotateX(-Math.PI / 2);             // extrude upward
+const slotBezel = new THREE.Mesh(bezelGeo, blackPlastic);
+slotBezel.position.set(SWITCH.x, GLASS_TOP, SWITCH.z);
+slotBezel.castShadow = slotBezel.receiveShadow = true;
+plate.add(slotBezel);
+const slotFloorGeo = new THREE.ShapeGeometry(pillShape(SLOT_W, SLOT_H), 24);
+slotFloorGeo.rotateX(-Math.PI / 2);
+const slotFloor = new THREE.Mesh(slotFloorGeo, new THREE.MeshStandardMaterial({ color: 0x050403, roughness: 0.95 }));
+slotFloor.position.set(SWITCH.x, GLASS_TOP + 0.002, SWITCH.z);
+slotFloor.receiveShadow = true;
+plate.add(slotFloor);
+
+const KNOB_R = 0.055, KNOB_H = 0.075;
+const knobGeo = new THREE.CylinderGeometry(KNOB_R, KNOB_R, KNOB_H, 48, 1);
+{
+  // Knurling: every other column of the side pushed out a touch.
+  const kp = knobGeo.attributes.position;
+  for (let i = 0; i < kp.count; i++) {
+    const x = kp.getX(i), z = kp.getZ(i);
+    if (Math.hypot(x, z) < KNOB_R * 0.99) continue;
+    const a = Math.atan2(z, x);
+    const k = Math.round((a / (Math.PI * 2)) * 48) % 2 ? 1.06 : 1;
+    kp.setXYZ(i, x * k, kp.getY(i), z * k);
+  }
+  knobGeo.computeVertexNormals();
+}
+const knobMat = new THREE.MeshPhysicalMaterial({ color: 0x111111, roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.2 });
+const nub = new THREE.Group();
+const knobBody = new THREE.Mesh(knobGeo, knobMat);
+knobBody.position.y = KNOB_H / 2;
+const knobTop = new THREE.Mesh(new THREE.SphereGeometry(KNOB_R, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), knobMat);
+knobTop.scale.y = 0.35;
+knobTop.position.y = KNOB_H;
+knobBody.castShadow = knobTop.castShadow = true;
+nub.add(knobBody, knobTop);
+const NUB_UP = GLASS_TOP + 0.002, NUB_DOWN = GLASS_TOP - 0.012;
 nub.position.set(SWITCH.x - SWITCH.travel, NUB_UP, SWITCH.z);
-nub.castShadow = true;
 plate.add(nub);
 
 // Larger invisible hit areas so the small controls are easy to tap.
@@ -814,12 +991,13 @@ scene.updateMatrixWorld(true);
 const TARGET = plate.localToWorld(new THREE.Vector3(0, -0.5, 0.15));
 
 // ---------- post ----------
+await stage(0.78, 'Wiring the buzzer');
 // Bloom is selective: a second render with everything but the LEDs blacked out
 // feeds the bloom, which is then added onto the main image before tone mapping.
 const bloomComposer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * DPR, innerHeight * DPR, { type: THREE.HalfFloatType }));
 bloomComposer.renderToScreen = false;
 bloomComposer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.1, 0.4, 0);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.6, 0.08, 0);
 bloomComposer.addPass(bloom);
 
 const bloomLayer = new THREE.Layers();
@@ -895,17 +1073,40 @@ let noiseBuf = null;
 let muted = false;
 try { muted = localStorage.getItem('edm-muted') === '1'; } catch {}
 
-function audio() {
+function audioContext() {
   if (!ac) {
     try {
       ac = new (window.AudioContext || window.webkitAudioContext)();
       noiseBuf = ac.createBuffer(1, Math.round(ac.sampleRate * 0.05), ac.sampleRate);
       const d = noiseBuf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = rand() * 2 - 1;
+      ac.onstatechange = renderMute;
     } catch { return null; }
   }
-  if (ac.state === 'suspended') ac.resume();
-  return muted ? null : ac;
+  // Safari can also leave a context 'interrupted', not just 'suspended'.
+  if (ac.state !== 'running') ac.resume().catch(() => {});
+  return ac;
+}
+
+function audio() {
+  const a = audioContext();
+  return muted ? null : a;
+}
+
+// Browsers only let audio start from a user gesture, and Safari is picky about
+// which events count, so try on every kind of interaction until it's running,
+// playing a one-sample silent buffer to unlock it.
+function unlockAudio() {
+  if (ac && ac.state === 'running') return;
+  const a = audioContext();
+  if (!a) return;
+  const s = a.createBufferSource();
+  s.buffer = a.createBuffer(1, 1, a.sampleRate);
+  s.connect(a.destination);
+  s.start(0);
+}
+for (const ev of ['pointerdown', 'mousedown', 'touchend', 'pointerup', 'click', 'keydown']) {
+  addEventListener(ev, unlockAudio, { capture: true, passive: true });
 }
 
 function tick(gain = 0.25, freq = 2600) {
@@ -986,11 +1187,17 @@ function whoosh() {
 }
 
 function renderMute() {
-  muteBtn.textContent = muted ? 'Sound: off' : 'Sound: on';
+  // "blocked" means the browser hasn't let audio start yet; clicking here unlocks it.
+  const blocked = ac && ac.state !== 'running';
+  muteBtn.textContent = muted ? 'Sound: off' : blocked ? 'Sound: click to enable' : 'Sound: on';
   muteBtn.setAttribute('aria-pressed', String(muted));
 }
 renderMute();
 muteBtn.addEventListener('click', () => {
+  if (!muted && ac && ac.state !== 'running') {
+    unlockAudio();
+    return;
+  }
   muted = !muted;
   try { localStorage.setItem('edm-muted', muted ? '1' : '0'); } catch {}
   renderMute();
@@ -1119,6 +1326,7 @@ function finish() {
     if (thisRun !== run || spinning) return;
     readout.textContent = text;
     readout.classList.add('show');
+    wake(4000);
   });
 }
 
@@ -1278,7 +1486,7 @@ addEventListener('resize', layout);
 const clock = new THREE.Clock();
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const tmp = new THREE.Vector3();
-let intro = reduceMotion ? 1 : 0;
+let intro = 1;                            // the intro plays once the loader is gone
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -1297,6 +1505,7 @@ function frame() {
   for (const l of leds) {
     l.level += (l.target - l.level) * ease(l.target > l.level ? 60 : 22);
     l.glowMat.opacity = l.level * 0.3;
+    l.haloMat.opacity = l.level * 0.32;
     if (l.level > brightest.level) brightest = l;
   }
   // Unlit domes pick up a faint red from whichever LED is lit nearby.
@@ -1321,10 +1530,39 @@ function frame() {
   composer.render(dt);
   requestAnimationFrame(frame);
 }
+await stage(0.88, 'Warming up the LEDs');
+if (renderer.compileAsync) await renderer.compileAsync(scene, camera).catch(() => {});
 requestAnimationFrame(frame);
+await nextFrame();
+loader.set(1, 'Ready');
 
 // For automated checks.
 window.__edm = {
-  askDown, askUp, setPower,
+  askDown, askUp, setPower, ready: false,
   get answer() { return !spinning && lit >= 0 ? leds[lit].text : null; },
+  printPNG: () => printCanvas().toDataURL(),
+  // Point the camera at a spot on the faceplate (plate-local) or in the world.
+  view(target, offset, local = true) {
+    const t = local ? plate.localToWorld(new THREE.Vector3(...target)) : new THREE.Vector3(...target);
+    controls.target.copy(t);
+    camera.position.copy(t).add(new THREE.Vector3(...offset));
+    controls.update();
+  },
 };
+
+// ---------- quiet UI ----------
+// The text overlays fade out when nobody is interacting, leaving just the device;
+// any pointer, wheel or key activity brings them back.
+let quietTimer = null;
+function wake(ms = 3500) {
+  document.body.classList.remove('quiet');
+  clearTimeout(quietTimer);
+  quietTimer = setTimeout(() => document.body.classList.add('quiet'), ms);
+}
+for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown', 'touchstart']) addEventListener(ev, () => wake(), { passive: true });
+wake(5000);
+
+// Once the loading screen has wiped away, play the camera's intro move.
+await loader.done();
+intro = reduceMotion ? 1 : 0;
+window.__edm.ready = true;

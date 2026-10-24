@@ -12,7 +12,9 @@ Each answer is drawn from true random bytes from [random.org](https://www.random
 
 The buzzer is modelled on a recording of a real unit: about 1.27 kHz with strong 2nd and 3rd harmonics, 40 ms per step every 60 ms, with the little pitch blip as each beep starts and stops.
 
-Fan-made; not affiliated with RadioShack.
+While it loads, a retro pixel-art loading screen shows real progress, then wipes away. Overlays fade out after a few seconds so you're left looking at the device; move the mouse or press a key to bring them back.
+
+Fan-made; not affiliated with RadioShack. The faceplate lettering and wordmark are set by hand to match photos of a real unit, not copied from logo artwork.
 
 ## Run locally
 
@@ -29,7 +31,8 @@ python3 -m http.server 8000
 - Physically based materials: transmissive smoked acrylic painted on the back except the windows, a red PCB with traces and resistors underneath, anisotropic brushed aluminum, matte rosewood, fine dust
 - 4K procedural textures (add `?tex=2048` or `?tex=1024` to the URL on slower machines)
 - Area-light softbox and studio environment, soft VSM shadows, GTAO ambient occlusion, selective LED bloom, MSAA, film grain
-- Web Audio for the buzzer, switch clicks and the answer whoosh
+- Web Audio for the buzzer, switch clicks and the answer whoosh, unlocked on the first interaction (Safari included)
+- Fonts: Montserrat and Montserrat Alternates for the faceplate, Press Start 2P for the loader (Google Fonts, OFL)
 - 2K textures and fewer AO samples on touch devices
 
 ## Deploy to GitHub Pages
