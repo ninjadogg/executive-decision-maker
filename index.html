@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'sha256-mCKDhKy09/xjx402QWJT0++5YZTiV5WQRJqKIcqKzSo='; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://www.random.org; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'sha256-mCKDhKy09/xjx402QWJT0++5YZTiV5WQRJqKIcqKzSo='; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src https://www.random.org; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="theme-color" content="#1b1917">
   <title>Executive Decision Maker</title>
@@ -17,9 +17,6 @@
   <meta property="og:image" content="https://ninjadogg.github.io/executive-decision-maker/og-image.png">
   <meta name="twitter:card" content="summary_large_image">
   <script src="boot.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link id="gfonts" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&family=Montserrat+Alternates:wght@800&family=Press+Start+2P&display=swap">
   <link rel="stylesheet" href="style.css">
   <script type="importmap">
     {
@@ -65,18 +62,19 @@
     <div class="stripes bottom"></div>
   </div>
   <script src="loader.js"></script>
-  <canvas id="c" aria-label="3D Executive Decision Maker. Press Space or Enter to get a decision."></canvas>
+  <canvas id="c" role="img" aria-label="3D Executive Decision Maker. Press Space or Enter to get a decision."></canvas>
   <header>
     <h1>Executive Decision Maker</h1>
     <p>A tribute to the Radio Shack desk classic</p>
   </header>
-  <button id="mute" type="button" aria-pressed="false">Sound: on</button>
+  <button id="mute" type="button">Sound: on</button>
   <button id="decide" type="button">Make a decision</button>
+  <button id="power" type="button" aria-pressed="true">Power</button>
   <div id="wipe" aria-hidden="true"><div class="band"><div class="word"></div></div></div>
   <div id="readout" aria-live="polite"></div>
-  <div id="hint">Press ASK (or Space) · drag to look around</div>
-  <footer><span id="rng">Randomness: random.org atmospheric noise + device CSPRNG</span><br>Fan-made tribute · not affiliated with RadioShack</footer>
-  <div id="fail">This needs WebGL, and the browser isn’t providing it right now. Quit and reopen the browser (it switches 3D off after a graphics crash), and check that hardware acceleration is on.</div>
+  <div id="hint" aria-live="polite">Press ASK (or Space) · drag to look around</div>
+  <footer><span id="rng">Randomness: random.org (when reachable) + device CSPRNG</span><br>Fan-made tribute · not affiliated with RadioShack</footer>
+  <div id="fail" role="alert">This needs WebGL, and the browser isn’t providing it right now. Quit and reopen the browser (it switches 3D off after a graphics crash), and check that hardware acceleration is on.</div>
   <script type="module" src="main.js"></script>
 </body>
 </html>

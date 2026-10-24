@@ -6,7 +6,9 @@ package (pip install playwright) and Google Chrome installed.
 
     python3 tests/run_tests.py
 """
+import base64
 import functools
+import hashlib
 import http.server
 import pathlib
 import socket
@@ -19,7 +21,8 @@ from playwright.sync_api import sync_playwright
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ANSWERS = {'DEFINITELY', 'ASK AGAIN', 'NEVER', 'FORGET IT', 'WHY NOT', 'POSSIBLY'}
 LOCAL_FILES = ['index.html', 'style.css', 'boot.js', 'loader.js', 'main.js', 'themes.js',
-               'favicon.svg', 'favicon.png', 'og-image.png']
+               'favicon.svg', 'favicon.png', 'og-image.png',
+               'fonts/montserrat-500.woff2', 'fonts/montserrat-alternates-800.woff2', 'fonts/press-start-2p.woff2']
 
 # Collects CSP violations and page errors before any page script runs.
 WATCH = """
@@ -108,6 +111,14 @@ def main():
                 r = page.request.get(base + f)
                 assert r.ok, f'{f}: HTTP {r.status}'
             page.close()
+        _()
+
+        @check('the CSP hash matches the import map (recompute it if the map changes)')
+        def _():
+            html = (ROOT / 'index.html').read_text()
+            body = html.split('<script type="importmap">', 1)[1].split('</script>', 1)[0]
+            digest = base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()
+            assert f"'sha256-{digest}'" in html, f'import map now hashes to sha256-{digest}'
         _()
 
         for theme in ('studio', 'halloween'):
@@ -238,6 +249,41 @@ def main():
             wait_js(pg, "!document.getElementById('loader')", 120000)
             assert pg.evaluate('typeof window.__edm') == 'undefined'
             pg.close()
+        _()
+
+        @check('odd URL parameters fall back safely (?theme=__proto__, ?tex=1)')
+        def _():
+            for q in ('&theme=__proto__', '&theme=nope&tex=1'):
+                pg = open_page(browser, debug + q)
+                assert not pg.errors, pg.errors
+                assert pg.evaluate('window.__theme') == 'studio' or pg.evaluate('new Date().getMonth()') == 9
+                pg.close()
+        _()
+
+        @check('power switch works from the keyboard')
+        def _():
+            pg = open_page(browser, debug + '&theme=studio')
+            pg.focus('#power')
+            pg.keyboard.press('Enter')
+            assert pg.get_attribute('#power', 'aria-pressed') == 'false'
+            pg.evaluate('__edm.askDown(); __edm.askUp()')
+            pg.wait_for_timeout(1200)
+            assert pg.evaluate('__edm.answer') is None, 'asked while powered off'
+            pg.keyboard.press('Enter')
+            assert pg.get_attribute('#power', 'aria-pressed') == 'true'
+            assert decide(pg) in ANSWERS
+            pg.close()
+        _()
+
+        @check('a blocked CDN shows an error instead of loading forever')
+        def _():
+            ctx = browser.new_context()
+            ctx.route('**/three.module.js', lambda r: r.abort())
+            pg = ctx.new_page()
+            pg.goto(base, wait_until='commit')
+            wait_js(pg, "(() => { const f = document.getElementById('fail'); return !!f && getComputedStyle(f).display !== 'none'; })()", 20000)
+            assert 'went wrong' in pg.inner_text('#fail'), pg.inner_text('#fail')
+            ctx.close()
         _()
 
         @check('recovers from a lost graphics context')

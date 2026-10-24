@@ -54,6 +54,8 @@ const TITLE_FONT = `Montserrat, ${FONT}`;
 const LOGO_FONT = `"Montserrat Alternates", ${FONT}`;
 const LITE = matchMedia('(pointer: coarse)').matches;
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Test and diagnostic hooks (window.__edm, the audio meter) only with ?debug in the URL.
+const DEBUG = new URLSearchParams(location.search).has('debug');
 const rand = Math.random;
 const canvas = document.getElementById('c');
 const readout = document.getElementById('readout');
@@ -76,7 +78,7 @@ try {
   window.__loader?.done();
   throw e;
 }
-const DPR = Math.min(devicePixelRatio, LITE ? 1.5 : 2);
+let DPR = Math.min(devicePixelRatio, LITE ? 1.5 : 2);
 renderer.setPixelRatio(DPR);
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -103,7 +105,7 @@ canvas.addEventListener('webglcontextlost', (e) => {
   fail.textContent = 'The graphics card reset. Reloading at a lighter setting…';
   fail.style.display = 'grid';
   const url = new URL(location.href);
-  url.searchParams.set('tex', tries ? '1024' : '2048');
+  url.searchParams.set('tex', String(Math.max(512, TEX_MAX / 2)));   // always step down from where we are
   setTimeout(() => location.replace(url), 1200);
 });
 RectAreaLightUniformsLib.init();
@@ -119,10 +121,8 @@ async function stage(progress, message) {
   await nextFrame();
 }
 await stage(0.06, 'Loading the typefaces');
-const fontSheet = document.getElementById('gfonts');
 await Promise.race([
-  (fontSheet?.sheet ? Promise.resolve() : new Promise((r) => fontSheet?.addEventListener('load', r, { once: true })))
-    .then(() => Promise.all(['500 40px Montserrat', '800 40px "Montserrat Alternates"'].map((f) => document.fonts.load(f)))),
+  Promise.all(['500 40px Montserrat', '800 40px "Montserrat Alternates"'].map((f) => document.fonts.load(f))),
   new Promise((r) => setTimeout(r, 4000)),
 ]).catch(() => {});
 
@@ -334,7 +334,7 @@ function roundRect(g, x, y, w, h, r) {
 // Faceplate coordinates (x right, z toward the viewer) to canvas pixels.
 // Texture resolution: the faceplate artwork's long side is 4096 px (2048 on touch devices).
 // ?tex=2048 (or 1024) overrides it, for slower machines.
-const TEX_MAX = Math.min(4096, Number(new URLSearchParams(location.search).get('tex')) || (LITE ? 2048 : 4096));
+const TEX_MAX = Math.min(4096, Math.max(512, Number(new URLSearchParams(location.search).get('tex')) || (LITE ? 2048 : 4096)));
 const PX = Math.floor(TEX_MAX / Math.max(PW, PL));   // faceplate texture pixels per unit
 const DUST_SCALE = PX / 300;                          // dust sizes were tuned at 300 px/unit
 const CW = Math.round(PW * PX), CH = Math.round(PL * PX);
@@ -723,9 +723,8 @@ const brushedSrc = brushedCanvas(TEX_MAX / 2, TEX_MAX, '#d4cfc6');
 sprinkleDust(brushedSrc.getContext('2d'), brushedSrc.width, brushedSrc.height, 2600,
   { color: '238,234,226', fibres: 3, scale: brushedSrc.width * BRUSH_UV / 300 });
 const brushed = toTexture(brushedSrc, { repeat: 1 });
-const brushedBump = toTexture(brushedSrc, { repeat: 1, color: false });
 const aluminum = addDust(new THREE.MeshPhysicalMaterial({
-  map: brushed, bumpMap: brushedBump, bumpScale: 0.15, metalness: 1, roughness: 0.3,
+  map: brushed, bumpMap: brushed, bumpScale: 0.15, metalness: 1, roughness: 0.3,
   anisotropy: 0.9, anisotropyRotation: 0, envMapIntensity: 1.8,
 }), { amount: 0.22 });
 
@@ -1101,8 +1100,22 @@ bloomComposer.addPass(bloom);
 const bloomLayer = new THREE.Layers();
 bloomLayer.set(BLOOM_LAYER);
 const blackout = new THREE.MeshBasicMaterial({ color: 0x000000 });
-const stashed = new Map();
+// Which meshes glow, hide or go black in the glow pass. The set is fixed once
+// loaded, so the lists are built on first use instead of every frame.
+let bloomLists = null;
+function buildBloomLists() {
+  const glow = [], hide = [], black = [];
+  scene.traverse((o) => {
+    if (!o.isMesh || o.material.visible === false) return;
+    if (bloomLayer.test(o.layers)) glow.push(o);
+    else if (o.userData.bloomHide) hide.push(o);
+    else black.push(o);
+  });
+  return { glow, hide, black };
+}
 function renderBloom() {
+  bloomLists ||= buildBloomLists();
+  const { glow, hide, black } = bloomLists;
   // No background or fog here: the blacked-out set must stay black, or the far
   // floor would be fogged to grey and bloom into a haze over everything.
   const bg = scene.background, fog = scene.fog;
@@ -1111,32 +1124,24 @@ function renderBloom() {
   // Leave any pending shadow redraw for the main render: here the materials are swapped out.
   const shadowsPending = renderer.shadowMap.needsUpdate;
   renderer.shadowMap.needsUpdate = false;
-  scene.traverse((o) => {
-    if (o.isLine) {                         // cobweb threads and the like: not glowing
-      stashed.set(o, [o.material, o.visible]);
-      o.visible = false;
-      return;
-    }
-    if (!o.isMesh || o.material.visible === false) return;
-    stashed.set(o, [o.material, o.visible]);
-    if (bloomLayer.test(o.layers)) o.material = o.userData.bloomMat;
-    else if (o.userData.bloomHide) o.visible = false;
-    else o.material = blackout;
-  });
+  for (const o of glow) { o.userData.ownMat = o.material; o.material = o.userData.bloomMat; }
+  for (const o of black) { o.userData.ownMat = o.material; o.material = blackout; }
+  for (const o of hide) { o.userData.wasVisible = o.visible; o.visible = false; }
   bloomComposer.render();
-  for (const [o, [m, v]] of stashed) {
-    o.material = m;
-    o.visible = v;
-  }
-  stashed.clear();
+  for (const o of glow) o.material = o.userData.ownMat;
+  for (const o of black) o.material = o.userData.ownMat;
+  for (const o of hide) o.visible = o.userData.wasVisible;
   scene.background = bg;
   scene.fog = fog;
   renderer.shadowMap.needsUpdate = shadowsPending;
 }
 
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * DPR, innerHeight * DPR, {
-  type: THREE.HalfFloatType, samples: 4,
+  type: THREE.HalfFloatType,
 }));
+// The scene renders into readBuffer (renderTarget2); only it needs MSAA, and
+// high-DPI screens are already supersampled. Saves ~450 MB on a retina laptop.
+composer.renderTarget2.samples = DPR >= 2 ? 0 : 4;
 composer.addPass(new RenderPass(scene, camera));
 const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
 // Fewer AO samples where there are a lot of pixels to shade (phones, big monitors).
@@ -1185,7 +1190,7 @@ try { muted = localStorage.getItem('edm-muted') === '1'; } catch {}
 const audioLog = [];
 let master = null, meter = null, audioPeak = 0;
 // Peak output level since last read, sampled a few times a second (for diagnosing silent browsers).
-setInterval(() => {
+if (DEBUG) setInterval(() => {
   if (!meter) return;
   const buf = new Float32Array(meter.fftSize);
   meter.getFloatTimeDomainData(buf);
@@ -1205,9 +1210,13 @@ function audioContext() {
       // Everything plays through one master bus with a level meter on it.
       master = ac.createGain();
       master.gain.value = 2.5;
-      meter = ac.createAnalyser();
-      meter.fftSize = 512;
-      master.connect(meter).connect(ac.destination);
+      if (DEBUG) {
+        meter = ac.createAnalyser();
+        meter.fftSize = 512;
+        master.connect(meter).connect(ac.destination);
+      } else {
+        master.connect(ac.destination);
+      }
     } catch (e) {
       logAudio(`create failed ${e}`);
       return null;
@@ -1366,7 +1375,8 @@ function fillPool() {
   }
   return poolFill;
 }
-fillPool();
+// Only contact random.org once someone interacts, not on every page view.
+for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => fillPool(), { once: true, capture: true });
 
 // 32 mixed random bytes, plus which sources went into them.
 async function mixedBytes() {
@@ -1399,7 +1409,7 @@ function randInt(n) {
 // The lights start at once; the answer is drawn while they run, and the
 // slowdown is planned so the light lands on it.
 const FAST_LAPS = reduceMotion ? 1 : 3;
-const STEP_MS = 60;                       // the real unit steps every ~60 ms
+const STEP_MS = reduceMotion ? 180 : 60;  // the real unit steps every ~60 ms; slower without the flashing
 const SLOW_MIN = reduceMotion ? 4 : 9;
 let powered = true;
 let holding = false;
@@ -1426,7 +1436,7 @@ function decide() {
   totalSteps = 0;
   target = null;
   const thisRun = ++run;
-  mixedBytes().then(({ bytes, source }) => {
+  mixedBytes().catch(() => ({ bytes: crypto.getRandomValues(new Uint8Array(32)), source: 'device CSPRNG' })).then(({ bytes, source }) => {
     if (thisRun !== run) return;
     target = uniformFrom(bytes, CHASE.length);
     if (rngNote) rngNote.textContent = `Randomness: ${source}`;
@@ -1474,7 +1484,9 @@ function finish() {
 const wipeBand = document.querySelector('#wipe .band');
 const wipeWord = document.querySelector('#wipe .word');
 let wipeAnims = [];
+let whooshTimer = null;
 function stopWipe() {
+  clearTimeout(whooshTimer);
   wipeAnims.forEach((a) => a.cancel());
   wipeAnims = [];
 }
@@ -1489,7 +1501,7 @@ function gameShowWipe(text) {
       { duration: 2000 })];
   } else {
     whoosh();
-    setTimeout(() => { if (wipeAnims.length) whoosh(); }, 1850);
+    whooshTimer = setTimeout(whoosh, 1850);
     wipeAnims = [
       wipeBand.animate([
         { transform: at('-110%'), easing: inOut },
@@ -1509,8 +1521,9 @@ function gameShowWipe(text) {
   return wipeAnims[0].finished.then(() => {}, () => {});
 }
 
+let sceneReady = false;                  // controls do nothing until the loader is gone
 function askDown() {
-  if (holding) return;
+  if (holding || !sceneReady) return;
   holding = true;
   pressedAt = performance.now();
   tick(0.35, 1300);
@@ -1524,7 +1537,9 @@ function askUp() {
 }
 
 function setPower(on) {
+  if (!sceneReady) return;
   powered = on;
+  powerBtn.setAttribute('aria-pressed', String(on));
   tick(0.45, 1800);
   clearTimeout(timer);
   timer = null;
@@ -1535,6 +1550,18 @@ function setPower(on) {
   readout.classList.remove('show');
   hint.textContent = on ? HINT_READY : 'Power is off. Slide the switch to ON';
 }
+
+// ---------- quiet UI ----------
+// The text overlays fade out when nobody is interacting, leaving just the device;
+// any pointer, wheel or key activity brings them back.
+let quietTimer = null;
+function wake(ms = 3500) {
+  document.body.classList.remove('quiet');
+  clearTimeout(quietTimer);
+  quietTimer = setTimeout(() => document.body.classList.add('quiet'), ms);
+}
+for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown', 'touchstart', 'focusin']) addEventListener(ev, () => wake(), { passive: true });
+wake(5000);
 
 // ---------- input ----------
 let switchHeld = false;
@@ -1551,6 +1578,7 @@ function pick(e) {
 
 // Registered before OrbitControls so pressing a control never starts an orbit.
 canvas.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;               // primary button / touch only
   const action = pick(e);
   if (!action) return;
   controls.enabled = false;
@@ -1576,7 +1604,7 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 addEventListener('keydown', (e) => {
-  if (e.repeat || e.target === muteBtn || e.target.id === 'decide') return;
+  if (e.repeat || e.target.closest?.('button')) return;   // buttons handle their own keys
   if (e.code === 'Space' || e.code === 'Enter') {
     e.preventDefault();
     askDown();
@@ -1590,6 +1618,9 @@ document.getElementById('decide').addEventListener('click', () => {
   askDown();
   askUp();
 });
+// A keyboard- and screen-reader-reachable power switch (hidden until focused).
+const powerBtn = document.getElementById('power');
+powerBtn.addEventListener('click', () => setPower(!powered));
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
@@ -1600,17 +1631,20 @@ controls.target.copy(TARGET);
 
 // Safari turns a trackpad pinch into page zoom, which just magnifies the
 // rendered bitmap (blurry). Catch the gesture and move the camera instead.
-let pinchFrom = 0;
-document.addEventListener('gesturestart', (e) => {
-  e.preventDefault();
-  pinchFrom = camera.position.distanceTo(controls.target);
-});
-document.addEventListener('gesturechange', (e) => {
-  e.preventDefault();
-  const d = THREE.MathUtils.clamp(pinchFrom / e.scale, controls.minDistance, controls.maxDistance);
-  camera.position.sub(controls.target).setLength(d).add(controls.target);
-});
-document.addEventListener('gestureend', (e) => e.preventDefault());
+// (Desktop only: iOS fires these for touch pinches too, which OrbitControls handles.)
+if (!LITE) {
+  let pinchFrom = 0;
+  document.addEventListener('gesturestart', (e) => {
+    e.preventDefault();
+    pinchFrom = camera.position.distanceTo(controls.target);
+  });
+  document.addEventListener('gesturechange', (e) => {
+    e.preventDefault();
+    const d = THREE.MathUtils.clamp(pinchFrom / e.scale, controls.minDistance, controls.maxDistance);
+    camera.position.sub(controls.target).setLength(d).add(controls.target);
+  });
+  document.addEventListener('gestureend', (e) => e.preventDefault());
+}
 
 // ---------- adaptive resolution ----------
 // If the frame rate sags (big monitors, slower GPUs), render a little smaller
@@ -1625,14 +1659,22 @@ function applyRenderScale() {
   bloomComposer.setPixelRatio(pr * 0.5);
 }
 let adaptFrom = Infinity;                 // set once the intro has played
+let slowWindows = 0;
 function adaptResolution(dt) {
   if (performance.now() < adaptFrom) return;
   scaleFrames++;
   scaleTime += dt;
-  if (scaleTime < 1.5) return;
+  if (scaleTime < 2) return;
   const fps = scaleFrames / scaleTime;
   scaleFrames = scaleTime = 0;
-  const next = fps < 48 ? Math.max(0.6, renderScale - 0.1) : fps > 57 ? Math.min(1, renderScale + 0.05) : renderScale;
+  // A steady ~30 fps is usually a power-saving cap (Low Power Mode, Energy
+  // Saver), not a struggling GPU, so it isn't a reason to drop resolution.
+  const capped = fps > 27 && fps < 32;
+  slowWindows = fps < 48 && !capped ? slowWindows + 1 : 0;
+  let next = renderScale;
+  if (slowWindows >= 2) { next = renderScale - 0.1; slowWindows = 0; }
+  else if (fps > 57) next = renderScale + 0.05;
+  next = Math.min(1, Math.max(0.6, Math.round(next * 20) / 20));
   if (next !== renderScale) {
     renderScale = next;
     applyRenderScale();
@@ -1660,13 +1702,27 @@ function layout() {
 }
 layout();
 camera.position.copy(TARGET).addScaledVector(VIEW_DIR, fitDistance * (reduceMotion ? 1 : 1.5));
-addEventListener('resize', layout);
+let resizeQueued = false;
+addEventListener('resize', () => {
+  if (resizeQueued) return;
+  resizeQueued = true;
+  requestAnimationFrame(() => {
+    resizeQueued = false;
+    DPR = Math.min(devicePixelRatio, LITE ? 1.5 : 2);
+    layout();
+    sceneDirty = true;
+  });
+});
 
 // ---------- loop ----------
 const clock = new THREE.Clock();
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const tmp = new THREE.Vector3();
 let intro = 1;                            // the intro plays once the loader is gone
+// Idle frames: with nothing moving, the studio set isn't redrawn at all and
+// themed sets (which animate on their own) drop to 30 fps, saving battery.
+let sceneDirty = true, frameNo = 0;
+controls.addEventListener('change', () => { sceneDirty = true; });
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -1709,13 +1765,18 @@ function frame() {
   askCap.position.y += (capY - askCap.position.y) * ease(pressed ? 60 : 28);
   nub.position.x += (nubX - nub.position.x) * ease(30);
   nub.position.y += (nubY - nub.position.y) * ease(40);
-  adaptResolution(dt);
 
-  film.uniforms.time.value += dt;
-  themeUpdate?.(performance.now() / 1000);
+  const moving = intro < 1 || spinning || holding || switchHeld || sceneDirty || renderer.shadowMap.needsUpdate ||
+    leds.some((l) => Math.abs(l.target - l.level) > 0.002);
+  sceneDirty = false;
+  frameNo++;
+  requestAnimationFrame(frame);
+  if (!moving && (!themeUpdate || frameNo % 2)) return;
+  if (moving) adaptResolution(dt);
+  if (!reduceMotion) film.uniforms.time.value += dt;
+  themeUpdate?.((performance.now() / 1000) * (reduceMotion ? 0.3 : 1));
   renderBloom();
   composer.render(dt);
-  requestAnimationFrame(frame);
 }
 await stage(0.88, 'Warming up the LEDs');
 if (renderer.compileAsync) await renderer.compileAsync(scene, camera).catch(() => {});
@@ -1740,8 +1801,7 @@ requestAnimationFrame(frame);
 }
 loader.set(1, 'Ready');
 
-// Test and diagnostic hooks, only with ?debug in the URL (the test suite uses them).
-const DEBUG = new URLSearchParams(location.search).has('debug');
+// Test and diagnostic hooks for the test suite (exposed only with ?debug).
 const debugHooks = {
   // Draw n answers with the same unbiased sampler the device uses; returns counts per answer.
   rngSample(n) {
@@ -1776,20 +1836,11 @@ const debugHooks = {
 };
 if (DEBUG) window.__edm = debugHooks;
 
-// ---------- quiet UI ----------
-// The text overlays fade out when nobody is interacting, leaving just the device;
-// any pointer, wheel or key activity brings them back.
-let quietTimer = null;
-function wake(ms = 3500) {
-  document.body.classList.remove('quiet');
-  clearTimeout(quietTimer);
-  quietTimer = setTimeout(() => document.body.classList.add('quiet'), ms);
-}
-for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown', 'touchstart', 'focusin']) addEventListener(ev, () => wake(), { passive: true });
-wake(5000);
 
 // Once the loading screen has wiped away, play the camera's intro move.
 await loader.done();
 intro = reduceMotion ? 1 : 0;
 adaptFrom = performance.now() + 2500;        // judge the frame rate after the intro, not during it
+sceneReady = true;
+setTimeout(() => { try { sessionStorage.removeItem('edm-gl-resets'); } catch {} }, 60000);
 debugHooks.ready = true;

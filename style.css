@@ -1,3 +1,8 @@
+/* Self-hosted fonts (SIL Open Font License; licences in fonts/). */
+@font-face { font-family: Montserrat; font-weight: 500; font-display: swap; src: url(fonts/montserrat-500.woff2) format('woff2'); }
+@font-face { font-family: 'Montserrat Alternates'; font-weight: 800; font-display: swap; src: url(fonts/montserrat-alternates-800.woff2) format('woff2'); }
+@font-face { font-family: 'Press Start 2P'; font-display: swap; src: url(fonts/press-start-2p.woff2) format('woff2'); }
+
 :root {
   --bg: #1b1917;
   --ink: #e9e2d6;
@@ -10,7 +15,7 @@ body { font: 14px/1.4 "Helvetica Neue", Arial, sans-serif; }
 canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 header { position: fixed; top: 16px; left: 16px; right: 120px; pointer-events: none; }
 h1 { margin: 0; font: 500 16px/1.2 "Helvetica Neue", Arial, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
-header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+header p { margin: 4px 0 0; color: #cdbfad; font-size: 12px; text-shadow: 0 1px 3px rgba(0, 0, 0, .75); }
 #readout {
   position: fixed; left: 0; right: 0; bottom: 44px; text-align: center; pointer-events: none;
   font: 700 clamp(22px, 5vw, 42px)/1.1 "Helvetica Neue", Arial, sans-serif; letter-spacing: .12em;
@@ -18,15 +23,15 @@ header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
   opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s;
 }
 #readout.show { opacity: 1; transform: none; }
-#hint { position: fixed; left: 0; right: 0; bottom: 16px; text-align: center; color: var(--muted); font-size: 12px; pointer-events: none; padding: 0 16px; }
+#hint { position: fixed; left: 0; right: 0; bottom: 16px; text-align: center; color: #d8cdbd; text-shadow: 0 1px 3px rgba(0, 0, 0, .75); font-size: 12px; pointer-events: none; padding: 0 16px; }
 #mute {
   position: fixed; top: 14px; right: 16px; background: rgba(255,255,255,.06); color: var(--ink);
   border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 12px; cursor: pointer;
 }
 #mute:hover { background: rgba(255,255,255,.12); }
-#decide { position: fixed; left: -9999px; }
-#decide:focus { left: 16px; top: 64px; padding: 6px 10px; }
-footer { position: fixed; right: 16px; bottom: 16px; color: #8d8277; font-size: 11px; text-align: right; pointer-events: none; }
+#decide, #power { position: fixed; left: -9999px; }
+#decide:focus, #power:focus { left: 16px; top: 64px; padding: 6px 10px; }
+footer { position: fixed; right: 16px; bottom: 16px; color: #cdbfad; text-shadow: 0 1px 3px rgba(0, 0, 0, .75); font-size: 11px; text-align: right; pointer-events: none; }
 @media (max-width: 640px) {
   footer { display: none; }
   h1 { font-size: 13px; }

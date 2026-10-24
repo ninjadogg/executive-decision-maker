@@ -45,7 +45,7 @@ const CONFIGS = {
 };
 
 export function themeConfig() {
-  return CONFIGS[THEME] || CONFIGS.studio;
+  return Object.hasOwn(CONFIGS, THEME) ? CONFIGS[THEME] : CONFIGS.studio;
 }
 
 // Low-lying mist, for themes that want it: built into every fogged material's

@@ -20,6 +20,10 @@ While it loads, a retro pixel-art loading screen shows real progress, then wipes
 
 Fan-made; not affiliated with RadioShack. The faceplate lettering and wordmark are set by hand to match photos of a real unit, not copied from logo artwork.
 
+## Privacy
+
+No cookies, analytics or tracking. The page loads three.js from jsDelivr (pinned to 0.170.0, with integrity hashes) and, the first time you press or type, fetches 64 random bytes from random.org; those are the only third-party requests, so jsDelivr and random.org see your IP address. Fonts are self-hosted. The only thing stored is your mute setting (localStorage).
+
 ## Run locally
 
 It is a static page with no build step:
@@ -38,6 +42,17 @@ python3 -m http.server 8000
 - Web Audio for the buzzer, switch clicks and the answer whoosh, unlocked on the first interaction (Safari included)
 - Fonts: Montserrat and Montserrat Alternates for the faceplate, Press Start 2P for the loader (Google Fonts, OFL)
 - 2K textures and fewer AO samples on touch devices
+
+## Tests
+
+`tests/run_tests.py` runs end-to-end checks in Google Chrome under the site's real Content-Security-Policy: loading in both themes, decisions, power, keyboard and touch use, the wipe, mute, idle overlays, random.org being unreachable, an even spread of answers, graphics-context recovery, reduced motion and failure handling.
+
+```sh
+pip install playwright
+python3 tests/run_tests.py
+```
+
+Add `?debug` to the URL to expose the test hooks on `window.__edm`.
 
 ## Deploy to GitHub Pages
 

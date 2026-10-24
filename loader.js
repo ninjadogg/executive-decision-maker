@@ -80,5 +80,23 @@
       });
     },
   };
+  // If anything fails before the scene is up (a script blocked or tampered
+  // with, no import-map support, an exception), say so instead of loading forever.
+  function fail(text) {
+    if (!running) return;
+    running = false;
+    el.remove();
+    const box = document.getElementById('fail');
+    box.textContent = text;
+    box.style.display = 'grid';
+  }
+  const broken = 'Something went wrong loading the 3D scene. Try reloading; if it keeps happening, your browser or network may be blocking it.';
+  addEventListener('error', () => fail(broken), true);
+  addEventListener('unhandledrejection', () => fail(broken));
+  addEventListener('DOMContentLoaded', () => {
+    if (!(HTMLScriptElement.supports && HTMLScriptElement.supports('importmap'))) {
+      fail('This needs a newer browser: one that supports JavaScript import maps (Chrome, Edge or Firefox from 2023, Safari 16.4 or later).');
+    }
+  });
   setTimeout(() => { if (running && progress < 1) msg.textContent = 'Still loading. Check your connection'; }, 30000);
 })();
