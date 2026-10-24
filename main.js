@@ -65,7 +65,12 @@ let renderer;
 try {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 } catch (e) {
-  document.getElementById('fail').style.display = 'grid';
+  const fail = document.getElementById('fail');
+  // Chrome drops WebGL entirely when graphics acceleration is off, so say where the switch is.
+  if (/Chrome\//.test(navigator.userAgent) && !/Edg\//.test(navigator.userAgent)) {
+    fail.textContent = 'This needs WebGL, which Chrome only provides with graphics acceleration on: Settings › System › “Use graphics acceleration when available”, then Relaunch.';
+  }
+  fail.style.display = 'grid';
   window.__loader?.done();
   throw e;
 }
