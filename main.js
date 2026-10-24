@@ -5,7 +5,6 @@ import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUnifo
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
-import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
@@ -36,7 +35,6 @@ const Z_FRONT = Z_OUT_FRONT - LIP_D, Z_BACK = Z_OUT_BACK + BACK_T;   // glass we
 const SLOPE = THREE.MathUtils.degToRad(13);
 const RISE = (Z_FRONT - Z_BACK) * Math.tan(SLOPE);
 const PW = W - 2 * INSET - 2 * STRIP, PL = Math.hypot(Z_FRONT - Z_BACK, RISE);
-const PX = 300;                            // faceplate texture pixels per unit
 
 const COL_X = [-0.78, 0.78];
 const ROW_Z = [-0.62, 0.1, 0.82];
@@ -79,7 +77,7 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 // softbox and window reflections the way they would in a product shot.
 function studioEnvironment() {
   const env = new THREE.Scene();
-  const room = new THREE.Mesh(new THREE.BoxGeometry(40, 16, 40), new THREE.MeshBasicMaterial({ color: 0x3a3632, side: THREE.BackSide }));
+  const room = new THREE.Mesh(new THREE.BoxGeometry(40, 16, 40), new THREE.MeshBasicMaterial({ color: 0x5a554e, side: THREE.BackSide }));
   room.position.y = 7;
   env.add(room);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ color: 0x24211e }));
@@ -144,36 +142,45 @@ function toTexture(c, { repeat, color = true } = {}) {
   return t;
 }
 
-// Rosewood-look vinyl: long, nearly straight dark streaks of uneven weight over
-// fine grain, running along the canvas y axis. Tiles in both directions.
-function rosewood(size = 1024) {
-  const [c, g] = makeCanvas(size, size);
-  g.fillStyle = '#8a3b1b';
-  g.fillRect(0, 0, size, size);
-  // Grain lines run roughly parallel: every streak follows one shared flow, with
-  // a little drift of its own so the figure gently converges and spreads.
+// Rosewood-look vinyl, w x h: long, nearly parallel dark streaks over fine grain,
+// running along the canvas y axis, tileable both ways. The soft, blurred figure
+// is drawn at quarter size and scaled up; fine grain is drawn at full size.
+// Widths, wobble and blur are given in pixels of a 1024-wide sheet.
+function rosewood(w, h) {
   const TAU = Math.PI * 2;
   const p1 = rand() * TAU, p2 = rand() * TAU, p3 = rand() * TAU;
-  const flow = (y) => 14 * Math.sin((TAU * y) / size + p1) + 6 * Math.sin((2 * TAU * y) / size + p2) + 2.5 * Math.sin((3 * TAU * y) / size + p3);
-  const band = (x0, width, alpha, wobble, color, blur = 0) => {
-    g.filter = blur ? `blur(${blur}px)` : 'none';
-    const k = 1 + Math.floor(rand() * 2), f = (TAU * k) / size, ph = rand() * TAU, follow = 0.7 + rand() * 0.6;
+  // Grain lines run roughly parallel: every streak follows one shared flow (as a
+  // fraction of the width), with a little drift of its own.
+  const flow = (v) => (5 * Math.sin(TAU * v + p1) + 2.5 * Math.sin(2 * TAU * v + p2) + 1 * Math.sin(3 * TAU * v + p3)) / 1024;
+  const band = (g, cw, ch, x0, width, alpha, wobble, color, blur = 0) => {
+    const k = cw / 1024;
+    g.filter = blur ? `blur(${blur * k}px)` : 'none';
+    const m = 1 + Math.floor(rand() * 2), ph = rand() * TAU, follow = 0.7 + rand() * 0.6;
     g.strokeStyle = `rgba(${color},${alpha})`;
-    g.lineWidth = width;
-    for (const off of [-size, 0, size]) {
+    g.lineWidth = width * k;
+    const dy = Math.max(4, ch / 128);
+    for (const off of [-cw, 0, cw]) {
       g.beginPath();
-      for (let y = 0; y <= size; y += 8) {
-        const x = x0 + off + flow(y) * follow + Math.sin(y * f + ph) * wobble * 0.35;
+      for (let y = 0; y <= ch + 0.01; y += dy) {
+        const v = y / ch;
+        const x = x0 * cw + off + flow(v) * follow * cw + Math.sin(TAU * m * v + ph) * wobble * 0.35 * k;
         y ? g.lineTo(x, y) : g.moveTo(x, y);
       }
       g.stroke();
     }
   };
-  // Broad colour variation first, then fine grain, then the heavy figure.
-  for (let i = 0; i < 46; i++) band(rand() * size, 10 + rand() * 50, 0.08 + rand() * 0.12, 4 + rand() * 10, rand() < 0.5 ? '60,18,6' : '170,80,38', 8);
-  for (let i = 0; i < 600; i++) band(rand() * size, 0.4 + rand() * 1.6, 0.05 + rand() * 0.14, 1 + rand() * 6, rand() < 0.8 ? '42,12,4' : '196,104,56');
-  for (let i = 0; i < 30; i++) band(rand() * size, 4 + rand() * 18, 0.22 + rand() * 0.35, 3 + rand() * 14, '30,8,3', 3 + rand() * 4);
-  for (let i = 0; i < 12; i++) band(rand() * size, 1.5 + rand() * 3, 0.25 + rand() * 0.25, 3 + rand() * 10, '24,7,2', 1);
+  const [soft, sg] = makeCanvas(w >> 2, h >> 2);
+  sg.fillStyle = '#7e3619';
+  sg.fillRect(0, 0, soft.width, soft.height);
+  for (let i = 0; i < 46; i++) band(sg, soft.width, soft.height, rand(), 10 + rand() * 50, 0.08 + rand() * 0.12, 4 + rand() * 10, rand() < 0.5 ? '60,18,6' : '170,80,38', 8);
+  for (let i = 0; i < 30; i++) band(sg, soft.width, soft.height, rand(), 4 + rand() * 18, 0.22 + rand() * 0.35, 3 + rand() * 14, '30,8,3', 3 + rand() * 4);
+  sg.filter = 'none';
+  const [c, g] = makeCanvas(w, h);
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(soft, 0, 0, w, h);
+  const fine = Math.round((600 * w) / 1024);
+  for (let i = 0; i < fine; i++) band(g, w, h, rand(), 0.12 + rand() * 0.45, 0.05 + rand() * 0.14, 1 + rand() * 6, rand() < 0.8 ? '42,12,4' : '196,104,56');
+  for (let i = 0; i < 12; i++) band(g, w, h, rand(), 1.5 + rand() * 3, 0.25 + rand() * 0.25, 3 + rand() * 10, '24,7,2', 1);
   g.filter = 'none';
   return c;
 }
@@ -186,6 +193,13 @@ function noiseCanvas(size, base, amount, alpha) {
     g.fillStyle = rand() < 0.5 ? `rgba(0,0,0,${alpha * rand()})` : `rgba(255,255,255,${alpha * rand()})`;
     g.fillRect(rand() * size, rand() * size, 1 + rand() * 2, 1 + rand() * 2);
   }
+  return c;
+}
+
+function halfSize(src) {
+  const [c, g] = makeCanvas(src.width >> 1, src.height >> 1);
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(src, 0, 0, c.width, c.height);
   return c;
 }
 
@@ -202,25 +216,26 @@ function brushedCanvas(w, h, base) {
 
 // Fine household dust: mostly tiny specks, a few bigger soft flecks, the odd
 // lint fibre. density(u, v) (0..1 across the canvas) lets it gather in corners.
-function sprinkleDust(g, w, h, count, { density = () => 1, color = '214,208,196', fibres = 0 } = {}) {
+// scale: canvas pixels per unit relative to 300, so specks keep their real size.
+function sprinkleDust(g, w, h, count, { density = () => 1, color = '214,208,196', fibres = 0, scale = 1 } = {}) {
   for (let i = 0; i < count; i++) {
     const x = rand() * w, y = rand() * h;
     if (rand() > density(x / w, y / h)) continue;
     const big = rand() < 0.015;
     g.fillStyle = `rgba(${color},${big ? 0.12 + rand() * 0.14 : 0.04 + rand() * 0.13})`;
     g.beginPath();
-    g.arc(x, y, big ? 0.8 + rand() * 0.6 : 0.3 + rand() * 0.45, 0, Math.PI * 2);
+    g.arc(x, y, (big ? 0.8 + rand() * 0.6 : 0.3 + rand() * 0.45) * scale, 0, Math.PI * 2);
     g.fill();
   }
-  g.lineWidth = 0.7;
+  g.lineWidth = 0.7 * scale;
   for (let i = 0; i < fibres; i++) {
-    const x = rand() * w, y = rand() * h, len = 12 + rand() * 50, a = rand() * Math.PI * 2;
+    const x = rand() * w, y = rand() * h, len = (12 + rand() * 50) * scale, a = rand() * Math.PI * 2, j = 20 * scale;
     g.strokeStyle = `rgba(${color},${0.08 + rand() * 0.1})`;
     g.beginPath();
     g.moveTo(x, y);
     g.bezierCurveTo(
-      x + Math.cos(a) * len * 0.4 + (rand() - 0.5) * 20, y + Math.sin(a) * len * 0.4 + (rand() - 0.5) * 20,
-      x + Math.cos(a) * len * 0.7 + (rand() - 0.5) * 20, y + Math.sin(a) * len * 0.7 + (rand() - 0.5) * 20,
+      x + Math.cos(a) * len * 0.4 + (rand() - 0.5) * j, y + Math.sin(a) * len * 0.4 + (rand() - 0.5) * j,
+      x + Math.cos(a) * len * 0.7 + (rand() - 0.5) * j, y + Math.sin(a) * len * 0.7 + (rand() - 0.5) * j,
       x + Math.cos(a) * len, y + Math.sin(a) * len);
     g.stroke();
   }
@@ -242,6 +257,11 @@ function roundRect(g, x, y, w, h, r) {
 }
 
 // Faceplate coordinates (x right, z toward the viewer) to canvas pixels.
+// Texture resolution: the faceplate artwork's long side is 4096 px (2048 on touch devices).
+// ?tex=2048 (or 1024) overrides it, for slower machines.
+const TEX_MAX = Math.min(4096, Number(new URLSearchParams(location.search).get('tex')) || (LITE ? 2048 : 4096));
+const PX = Math.floor(TEX_MAX / Math.max(PW, PL));   // faceplate texture pixels per unit
+const DUST_SCALE = PX / 300;                          // dust sizes were tuned at 300 px/unit
 const CW = Math.round(PW * PX), CH = Math.round(PL * PX);
 const toPx = (x, z) => [(x / PW + 0.5) * CW, (z / PL + 0.5) * CH];
 const u = (n) => n * PX;
@@ -283,11 +303,16 @@ function printCanvas() {
   [x, y] = toPx(ASK.x, ASK.z - 0.27);
   g.fillText('ASK', x, y);
 
-  // Brand wordmark, set in a generic bold italic.
-  g.font = `italic 800 ${u(0.2)}px "Arial Black", ${FONT}`;
-  spaced(0);
+  // Brand wordmark, hand-set to follow the original's heavy, steeply slanted,
+  // tightly spaced lettering (drawn here, not copied from the logo artwork).
   [x, y] = toPx(0.02, SWITCH.z - 0.02);
-  g.fillText('Radio Shack', x, y);
+  g.save();
+  g.translate(x, y);
+  g.transform(0.94, 0, -0.34, 1, 0, 0);    // condense a touch and slant ~19 degrees
+  g.font = `900 ${u(0.19)}px "Arial Black", "Helvetica Neue", Arial, sans-serif`;
+  spaced(-u(0.008));
+  g.fillText('Radio Shack', 0, 0);
+  g.restore();
   return c;
 }
 
@@ -310,11 +335,11 @@ function faceplateMaps() {
     g.fillStyle = grd;
     g.fillRect(0, 0, CW, CH);
   }
-  sprinkleDust(g, CW, CH, 7000, { density: edgeDust, fibres: 8 });
+  sprinkleDust(g, CW, CH, 7000, { density: edgeDust, fibres: 8, scale: DUST_SCALE });
 
   // Glass roughness (green channel): polished, with soft smudges and a couple of
   // thumbprints by the ASK button. Rough spots also blur what's seen through them.
-  const [r, rg] = makeCanvas(512, Math.round(512 * CH / CW));
+  const [r, rg] = makeCanvas(1024, Math.round(1024 * CH / CW));
   rg.fillStyle = 'rgb(0,10,0)';
   rg.fillRect(0, 0, r.width, r.height);
   const smudge = (x, y, rad, a) => {
@@ -326,12 +351,13 @@ function faceplateMaps() {
     rg.ellipse(x, y, rad, rad * (0.6 + rand() * 0.4), rand() * Math.PI, 0, Math.PI * 2);
     rg.fill();
   };
-  for (let i = 0; i < 14; i++) smudge(rand() * r.width, rand() * r.height, 20 + rand() * 60, 0.15 + rand() * 0.2);
+  const sk = r.width / 512;
+  for (let i = 0; i < 14; i++) smudge(rand() * r.width, rand() * r.height, (20 + rand() * 60) * sk, 0.15 + rand() * 0.2);
   const ax = (ASK.x / PW + 0.5) * r.width, az = (ASK.z / PL + 0.5) * r.height;
-  smudge(ax - 30, az - 40, 34, 0.5);
-  smudge(ax - 60, az - 10, 26, 0.35);
+  smudge(ax - 30 * sk, az - 40 * sk, 34 * sk, 0.5);
+  smudge(ax - 60 * sk, az - 10 * sk, 26 * sk, 0.35);
   // Dust specks diffuse the reflection where they sit.
-  sprinkleDust(rg, r.width, r.height, 2500, { density: edgeDust, color: '0,200,0' });
+  sprinkleDust(rg, r.width, r.height, 2500, { density: edgeDust, color: '0,200,0', scale: r.width / PW / 300 });
 
   return { ink: toTexture(c), roughness: toTexture(r, { color: false }) };
 }
@@ -347,7 +373,7 @@ function pcbMaps() {
   g.fillRect(0, 0, CW, CH);
   for (let i = 0; i < 14000; i++) {
     g.fillStyle = rand() < 0.5 ? `rgba(0,0,0,${0.05 * rand()})` : `rgba(255,120,90,${0.04 * rand()})`;
-    g.fillRect(rand() * CW, rand() * CH, 2 + rand() * 5, 1 + rand() * 2);
+    g.fillRect(rand() * CW, rand() * CH, (2 + rand() * 5) * DUST_SCALE, (1 + rand() * 2) * DUST_SCALE);
   }
   og.fillStyle = 'rgb(0,140,0)';
   og.fillRect(0, 0, CW, CH);
@@ -400,7 +426,7 @@ function pcbMaps() {
     [lx, ly] = toPx(x + RES_DX, z - 0.09);
     g.fillText(`R${i + 1}`, lx, ly);
   });
-  return { map: toTexture(c), orm: toTexture(o, { color: false }) };
+  return { map: toTexture(c), orm: toTexture(halfSize(o), { color: false }) };
 }
 
 // Black paint on the back of the glass, clear only through the six windows.
@@ -415,7 +441,7 @@ function paintMask() {
     roundRect(g, bx, by, u(BOX_W - 2 * inset), u(BOX_H - 2 * inset), u(0.09));
     g.fill();
   }
-  return toTexture(c);
+  return toTexture(halfSize(c));
 }
 
 // Carbon-film resistor bands: orange, orange, brown, gold (330 ohm).
@@ -444,39 +470,48 @@ function glowTexture() {
 
 // ---------- materials ----------
 // Matte, oiled-rosewood finish: no gloss coat to speak of, roughness that
-// follows the figure, and open pores along the grain.
-// aspect: face height / width, so the grain keeps its true scale on short faces.
-function vinyl({ aspect = 1, dusty = false } = {}) {
-  const src = rosewood();
-  const [b, bg] = makeCanvas(src.width, src.height);
+// follows the figure, and open pores along the grain. One sheet is shared by
+// every face (each takes its own offset); the top gets a dusty copy.
+const WOOD_W = TEX_MAX, WOOD_H = WOOD_W / 2;
+const WOOD_PX = WOOD_W / W;                 // the sheet's width spans the box width
+const wood = (() => {
+  const src = rosewood(WOOD_W, WOOD_H);
+  const [b, bg] = makeCanvas(WOOD_W, WOOD_H);
   bg.drawImage(src, 0, 0);
-  for (let i = 0; i < 9000; i++) {
+  const k = WOOD_W / 1024;
+  for (let i = 0; i < 20000; i++) {
     bg.fillStyle = `rgba(0,0,0,${0.2 + rand() * 0.4})`;
-    bg.fillRect(rand() * b.width, rand() * b.height, 1, 2 + rand() * 5);
+    bg.fillRect(rand() * WOOD_W, rand() * WOOD_H, Math.max(1, 0.5 * k), (2 + rand() * 5) * k);
   }
-  const [r, rg] = makeCanvas(src.width, src.height);
+  const [r, rg] = makeCanvas(1024, 512);
   rg.fillStyle = 'rgb(0,215,0)';
-  rg.fillRect(0, 0, r.width, r.height);
+  rg.fillRect(0, 0, 1024, 512);
   rg.globalCompositeOperation = 'multiply';
   rg.globalAlpha = 0.35;
-  rg.drawImage(src, 0, 0);
-  let colour = src;
-  if (dusty) {
-    const [d, dg] = makeCanvas(src.width, src.height);
-    dg.drawImage(src, 0, 0);
-    sprinkleDust(dg, d.width, d.height, 7000, { fibres: 6 });
-    colour = d;
-  }
-  const map = toTexture(colour, { repeat: 1 });
-  const bump = toTexture(b, { repeat: 1, color: false });
-  const rough = toTexture(r, { color: false });
-  for (const t of [map, bump, rough]) {
+  rg.drawImage(src, 0, 0, 1024, 512);
+  const [d, dg] = makeCanvas(WOOD_W, WOOD_H);
+  dg.drawImage(src, 0, 0);
+  sprinkleDust(dg, WOOD_W, WOOD_H, 3500, { fibres: 4, scale: WOOD_PX / 300 });
+  const tex = (canvas, color) => {
+    const t = toTexture(canvas, { color });
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(1, aspect);
-  }
+    return t;
+  };
+  return { map: tex(src, true), dusty: tex(d, true), bump: tex(b, false), rough: tex(r, false) };
+})();
+
+// faceW x faceH in world units, so the grain keeps its true scale on every face.
+function vinyl(faceW, faceH, { dusty = false } = {}) {
+  const ox = rand(), oy = rand();
+  const fit = (t) => {
+    const c = t.clone();                    // clones share the uploaded image
+    c.repeat.set(faceW / W, faceH / (WOOD_H / WOOD_PX));
+    c.offset.set(ox, oy);
+    return c;
+  };
   return new THREE.MeshPhysicalMaterial({
-    map, bumpMap: bump, bumpScale: 0.8,
-    roughness: 1, roughnessMap: rough,
+    map: fit(dusty ? wood.dusty : wood.map), bumpMap: fit(wood.bump), bumpScale: 0.8,
+    roughness: 1, roughnessMap: fit(wood.rough),
     clearcoat: 0.06, clearcoatRoughness: 0.6,
     sheen: 0.25, sheenRoughness: 0.8, sheenColor: new THREE.Color(0x6a2a14),
   });
@@ -485,48 +520,56 @@ const blackPlastic = new THREE.MeshPhysicalMaterial({
   color: 0x0e0e0e, roughness: 0.42, clearcoat: 0.25, clearcoatRoughness: 0.5,
   bumpMap: toTexture(noiseCanvas(256, '#808080', 9000, 0.5), { repeat: 6, color: false }), bumpScale: 0.15,
 });
-// Brushing runs front to back along the walls (and side to side on the back wall).
-// Satin brushed aluminum: bright, with highlights stretched along the brushing
-// (anisotropy follows the UV u axis, which runs front to back on the walls).
-const brushedSrc = brushedCanvas(512, 1024, '#d4cfc6');
-sprinkleDust(brushedSrc.getContext('2d'), 512, 1024, 2600, { color: '238,234,226', fibres: 3 });
-const brushed = toTexture(brushedSrc, { repeat: 0.35 });
-const brushedBump = toTexture(brushedSrc, { repeat: 0.35, color: false });
-for (const t of [brushed, brushedBump]) t.rotation = Math.PI / 2;
+// Satin brushed aluminum. UVs are box-projected (see brushedUVs) so v always
+// follows the brushing; anisotropy works along u, across the brush lines, which
+// is how real brushed metal stretches its highlights.
+const BRUSH_UV = 0.35;                      // UV per world unit
+const brushedSrc = brushedCanvas(TEX_MAX / 2, TEX_MAX, '#d4cfc6');
+sprinkleDust(brushedSrc.getContext('2d'), brushedSrc.width, brushedSrc.height, 2600,
+  { color: '238,234,226', fibres: 3, scale: brushedSrc.width * BRUSH_UV / 300 });
+const brushed = toTexture(brushedSrc, { repeat: 1 });
+const brushedBump = toTexture(brushedSrc, { repeat: 1, color: false });
 const aluminum = new THREE.MeshPhysicalMaterial({
   map: brushed, bumpMap: brushedBump, bumpScale: 0.15, metalness: 1, roughness: 0.3,
   anisotropy: 0.9, anisotropyRotation: 0, envMapIntensity: 1.8,
 });
-const rubber = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.95 });
 
-// ---------- studio sweep ----------
-function sweepGeometry() {
-  const floor = 16, R = 6, wall = 16, width = 60, front = 9;
-  const arc = (Math.PI * R) / 2, total = floor + arc + wall;
-  const geo = new THREE.PlaneGeometry(width, total, 1, 120);
-  const p = geo.attributes.position;
+// Box-projected UVs from each vertex's dominant normal: faces looking along z
+// brush along x; side faces and tops brush along z.
+function brushedUVs(geo) {
+  const p = geo.attributes.position, n = geo.attributes.normal;
+  const uv = new Float32Array(p.count * 2);
   for (let i = 0; i < p.count; i++) {
-    const s = p.getY(i) + total / 2;
-    let y, z;
-    if (s < floor) {
-      y = 0; z = front - s;
-    } else if (s < floor + arc) {
-      const a = (s - floor) / R;
-      y = R - R * Math.cos(a); z = front - floor - R * Math.sin(a);
-    } else {
-      y = R + (s - floor - arc); z = front - floor - R;
-    }
-    p.setXYZ(i, p.getX(i), y, z);
+    const ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i)), az = Math.abs(n.getZ(i));
+    let a, b;
+    if (az >= ax && az >= ay) { a = p.getY(i); b = p.getX(i); }
+    else if (ax >= ay) { a = p.getY(i); b = p.getZ(i); }
+    else { a = p.getX(i); b = p.getZ(i); }
+    uv[i * 2] = a * BRUSH_UV;
+    uv[i * 2 + 1] = b * BRUSH_UV;
   }
-  geo.computeVertexNormals();
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   return geo;
 }
-const sweep = new THREE.Mesh(sweepGeometry(), new THREE.MeshStandardMaterial({
-  color: 0x77726c, roughness: 0.92,
-  bumpMap: toTexture(noiseCanvas(512, '#808080', 40000, 0.35), { repeat: 14, color: false }), bumpScale: 0.3,
+const rubber = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.95 });
+
+// ---------- studio floor ----------
+// A wide floor inside a dome of the same tone, both fogged to that tone, so the
+// set fades out evenly from every angle (the dome goes through the same fog and
+// tone mapping as the floor, so there is no visible horizon).
+const SET_TONE = 0x9a948c;                 // matches the lit floor after tone mapping
+scene.fog = new THREE.Fog(SET_TONE, 12, 32);
+// Purely diffuse (Lambert): a matte floor shouldn't pick up the softbox's
+// specular sheen, which flares into a bright band at grazing angles.
+const floor = new THREE.Mesh(new THREE.CircleGeometry(80, 96), new THREE.MeshLambertMaterial({
+  color: 0x8a847d,
+  bumpMap: toTexture(noiseCanvas(512, '#808080', 40000, 0.35), { repeat: 40, color: false }), bumpScale: 0.3,
 }));
-sweep.receiveShadow = true;
-scene.add(sweep);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+const dome = new THREE.Mesh(new THREE.SphereGeometry(70, 48, 24), new THREE.MeshBasicMaterial({ color: SET_TONE, side: THREE.BackSide }));
+scene.add(dome);
 
 // ---------- cabinet ----------
 const cabinet = new THREE.Group();
@@ -536,7 +579,7 @@ scene.add(cabinet);
 // material groups, so the grain runs vertically on every side.
 const body = new THREE.Mesh(
   new RoundedBoxGeometry(W, HW, D, 4, 0.035),
-  [vinyl({ aspect: HW / D }), vinyl({ aspect: HW / D }), vinyl({ dusty: true }), blackPlastic, vinyl({ aspect: HW / W }), vinyl({ aspect: HW / W })]
+  [vinyl(D, HW), vinyl(D, HW), vinyl(W, D, { dusty: true }), blackPlastic, vinyl(W, HW), vinyl(W, HW)]
 );
 body.position.y = FOOT + HW / 2;
 body.castShadow = body.receiveShadow = true;
@@ -564,6 +607,7 @@ const sideGeo = new THREE.ExtrudeGeometry(sideShape, {
   depth: STRIP - 2 * WALL_BEV, bevelEnabled: true, bevelSize: WALL_BEV, bevelThickness: WALL_BEV, bevelSegments: 2, curveSegments: 1,
 });
 sideGeo.rotateY(Math.PI / 2);          // profile x (= -z) -> world z, extrusion -> +x
+brushedUVs(sideGeo);
 for (const s of [-1, 1]) {
   const wall = new THREE.Mesh(sideGeo, aluminum);
   wall.position.x = s < 0 ? -(W / 2 - INSET) + WALL_BEV : W / 2 - INSET - STRIP + WALL_BEV;
@@ -571,7 +615,7 @@ for (const s of [-1, 1]) {
   cabinet.add(wall);
 }
 const backH = wallTopY(Z_OUT_BACK) - BASE_TOP;
-const backWall = new THREE.Mesh(new RoundedBoxGeometry(W - 2 * INSET, backH, BACK_T + WALL_BEV, 3, WALL_BEV), aluminum);
+const backWall = new THREE.Mesh(brushedUVs(new RoundedBoxGeometry(W - 2 * INSET, backH, BACK_T + WALL_BEV, 3, WALL_BEV)), aluminum);
 backWall.position.set(0, BASE_TOP + backH / 2, Z_OUT_BACK - WALL_BEV + (BACK_T + WALL_BEV) / 2);
 backWall.castShadow = backWall.receiveShadow = true;
 cabinet.add(backWall);
@@ -636,7 +680,7 @@ for (const w of WINDOWS) {
 // room light only reaches the PCB through the windows.
 const paint = new THREE.Mesh(
   new THREE.PlaneGeometry(PW, PL),
-  new THREE.MeshStandardMaterial({ color: 0x050505, map: paintMask(), alphaTest: 0.5, roughness: 0.35, side: THREE.DoubleSide })
+  new THREE.MeshStandardMaterial({ color: 0x0b0807, map: paintMask(), alphaTest: 0.5, roughness: 0.35, side: THREE.DoubleSide })
 );
 paint.rotation.x = -Math.PI / 2;
 paint.position.y = GAP - 0.002;
@@ -647,9 +691,9 @@ plate.add(paint);
 // Smoked acrylic: real transmission so the LEDs and backplane are seen through
 // (and refracted by) it. depthWrite off so the ink and LED glow layer over it.
 const glassMat = new THREE.MeshPhysicalMaterial({
-  color: 0x9a9592, metalness: 0, roughness: 1, roughnessMap: fp.roughness,
+  color: 0x7d7672, metalness: 0, roughness: 1, roughnessMap: fp.roughness,
   transmission: 1, thickness: GLASS_T, ior: 1.49,
-  attenuationColor: new THREE.Color(0x3a3230), attenuationDistance: 0.18,
+  attenuationColor: new THREE.Color(0x3a302c), attenuationDistance: 0.13,
   specularIntensity: 1, envMapIntensity: 1, depthWrite: false,
 });
 const glass = new THREE.Mesh(new THREE.BoxGeometry(PW, GLASS_T, PL), glassMat);
@@ -668,6 +712,7 @@ plate.add(ink);
 // LEDs: diffused 5 mm red domes with a flange, plus a soft spill on the backplane.
 const LED_COLOR = new THREE.Color(0xff1e0a);
 const BLOOM_LAYER = 1;
+const SMOKE_GLOW = 0.3;                   // share of an LED's light that makes it out through the smoke
 // Lathe profiles run bottom to top so the faces point outward.
 const ledGeo = new THREE.LatheGeometry([
   new THREE.Vector2(0, 0), new THREE.Vector2(0.095, 0), new THREE.Vector2(0.095, 0.012),
@@ -690,14 +735,17 @@ const glowTex = glowTexture();
 const leds = WINDOWS.map((w) => {
   const x = COL_X[w.col], z = ROW_Z[w.row] + LED_DZ;
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0x3a0604, emissive: LED_COLOR, emissiveIntensity: 0, emissiveMap: ledHot,
-    roughness: 0.38, clearcoat: 1, clearcoatRoughness: 0.03, sheen: 0.15, sheenColor: 0xff5030,
+    color: 0x1e0302, emissive: LED_COLOR, emissiveIntensity: 0, emissiveMap: ledHot,
+    roughness: 0.5, clearcoat: 0.5, clearcoatRoughness: 0.18,
   });
-  const dome = new THREE.Mesh(ledGeo, mat);
-  dome.position.set(x, 0, z);
-  dome.castShadow = true;
-  dome.layers.enable(BLOOM_LAYER);
-  plate.add(dome);
+  const ledDome = new THREE.Mesh(ledGeo, mat);
+  ledDome.position.set(x, 0, z);
+  ledDome.castShadow = true;
+  ledDome.layers.enable(BLOOM_LAYER);
+  // What the bloom pass sees: only the light the LED emits, dimmed by the smoke.
+  const bloomMat = new THREE.MeshBasicMaterial({ color: 0x000000, map: ledHot });
+  ledDome.userData.bloomMat = bloomMat;
+  plate.add(ledDome);
   const glowMat = new THREE.MeshBasicMaterial({
     map: glowTex, color: 0xff2a10, transparent: true, opacity: 0,
     blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
@@ -706,7 +754,7 @@ const leds = WINDOWS.map((w) => {
   glow.rotation.x = -Math.PI / 2;
   glow.position.set(x, 0.003, z);
   plate.add(glow);
-  return { text: w.text, mat, glowMat, pos: new THREE.Vector3(x, 0.1, z), level: 0, target: 0 };
+  return { text: w.text, mat, glowMat, bloomMat, pos: new THREE.Vector3(x, 0.1, z), level: 0, target: 0 };
 });
 // Short range: it only reaches the board, resistor and paint inside its own window
 // (point lights cast no shadows here, so a longer reach would leak onto the walls).
@@ -714,7 +762,7 @@ const ledLight = new THREE.PointLight(0xff2a10, 0, 0.6, 2);
 plate.add(ledLight);
 
 // ASK pushbutton, standing proud of the glass; its stem drops through to the backplane.
-const askCollar = new THREE.Mesh(new THREE.TorusGeometry(0.165, 0.03, 14, 48), new THREE.MeshPhysicalMaterial({ color: 0x1a1a1a, metalness: 0.5, roughness: 0.35, clearcoat: 0.5 }));
+const askCollar = new THREE.Mesh(new THREE.TorusGeometry(0.165, 0.03, 14, 48), new THREE.MeshStandardMaterial({ color: 0xd2d0cc, metalness: 1, roughness: 0.22 }));
 askCollar.rotation.x = -Math.PI / 2;
 askCollar.position.set(ASK.x, GLASS_TOP + 0.012, ASK.z);
 plate.add(askCollar);
@@ -771,7 +819,7 @@ const TARGET = plate.localToWorld(new THREE.Vector3(0, -0.5, 0.15));
 const bloomComposer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * DPR, innerHeight * DPR, { type: THREE.HalfFloatType }));
 bloomComposer.renderToScreen = false;
 bloomComposer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.7, 0.35, 0);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.1, 0.4, 0);
 bloomComposer.addPass(bloom);
 
 const bloomLayer = new THREE.Layers();
@@ -779,13 +827,17 @@ bloomLayer.set(BLOOM_LAYER);
 const blackout = new THREE.MeshBasicMaterial({ color: 0x000000 });
 const stashed = new Map();
 function renderBloom() {
-  const bg = scene.background;
+  // No background or fog here: the blacked-out set must stay black, or the far
+  // floor would be fogged to grey and bloom into a haze over everything.
+  const bg = scene.background, fog = scene.fog;
   scene.background = null;
+  scene.fog = null;
   renderer.shadowMap.autoUpdate = false;
   scene.traverse((o) => {
-    if (!o.isMesh || bloomLayer.test(o.layers) || o.material.visible === false) return;
+    if (!o.isMesh || o.material.visible === false) return;
     stashed.set(o, [o.material, o.visible]);
-    if (o.userData.bloomHide) o.visible = false;
+    if (bloomLayer.test(o.layers)) o.material = o.userData.bloomMat;
+    else if (o.userData.bloomHide) o.visible = false;
     else o.material = blackout;
   });
   bloomComposer.render();
@@ -795,6 +847,7 @@ function renderBloom() {
   }
   stashed.clear();
   scene.background = bg;
+  scene.fog = fog;
   renderer.shadowMap.autoUpdate = true;
 }
 
@@ -807,11 +860,6 @@ gtao.updateGtaoMaterial({ radius: 0.5, distanceExponent: 1.5, thickness: 1, scal
 gtao.updatePdMaterial({ radius: 6, rings: 2, samples: LITE ? 8 : 16 });
 gtao.blendIntensity = 0.9;
 composer.addPass(gtao);
-let bokeh = null;
-if (!LITE) {
-  bokeh = new BokehPass(scene, camera, { focus: 10, aperture: 0.0012, maxblur: 0.006 });
-  composer.addPass(bokeh);
-}
 composer.addPass(new ShaderPass(new THREE.ShaderMaterial({
   uniforms: { baseTexture: { value: null }, bloomTexture: { value: bloomComposer.renderTarget2.texture } },
   vertexShader: /* glsl */ `
@@ -824,7 +872,7 @@ composer.addPass(new ShaderPass(new THREE.ShaderMaterial({
 composer.addPass(new OutputPass());
 // Film grain and a soft lens vignette, applied after tone mapping.
 const film = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, grain: { value: 0.028 }, vignette: { value: 0.55 } },
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, grain: { value: 0.012 }, vignette: { value: 0.55 } },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
@@ -878,25 +926,63 @@ function tick(gain = 0.25, freq = 2600) {
   src.stop(t + 0.05);
 }
 
-// Piezo-style chirp: a square wave that sweeps up into its note and dies fast.
-function chirp(freq, dur = 0.05, vol = 0.07) {
+// The buzzer, measured from a recording of a real unit: ~1.27 kHz with strong
+// 2nd and 3rd harmonics, 40 ms per step, dropping in from ~1.45 kHz as it starts
+// and blipping up to ~1.56 kHz as it cuts off.
+const BEEP_HZ = 1270, BEEP_S = 0.04;
+let buzzerWave = null;
+function beep() {
   const a = audio();
   if (!a) return;
+  if (!buzzerWave) {
+    // Harmonic amplitudes relative to the fundamental: -10.5, -9, -19.5, -22, -31 dB.
+    buzzerWave = a.createPeriodicWave(
+      new Float32Array(7),
+      new Float32Array([0, 1, 0.3, 0.355, 0.106, 0.079, 0.028])
+    );
+  }
   const t = a.currentTime;
   const o = a.createOscillator();
-  o.type = 'square';
-  o.frequency.setValueAtTime(freq * 0.72, t);
-  o.frequency.exponentialRampToValueAtTime(freq, t + Math.min(0.018, dur * 0.4));
+  o.setPeriodicWave(buzzerWave);
+  o.frequency.setValueAtTime(1450, t);
+  o.frequency.exponentialRampToValueAtTime(BEEP_HZ, t + 0.006);
+  o.frequency.setValueAtTime(BEEP_HZ, t + BEEP_S - 0.005);
+  o.frequency.exponentialRampToValueAtTime(1560, t + BEEP_S);
+  const g = a.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.09, t + 0.0015);
+  g.gain.setValueAtTime(0.09, t + BEEP_S - 0.0015);
+  g.gain.linearRampToValueAtTime(0, t + BEEP_S);
+  o.connect(g).connect(a.destination);
+  o.start(t);
+  o.stop(t + BEEP_S + 0.01);
+}
+
+// Game-show whoosh for the answer wipe: band-passed noise sweeping up.
+let whooshBuf = null;
+function whoosh() {
+  const a = audio();
+  if (!a) return;
+  if (!whooshBuf) {
+    whooshBuf = a.createBuffer(1, a.sampleRate, a.sampleRate);
+    const d = whooshBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = rand() * 2 - 1;
+  }
+  const t = a.currentTime;
+  const src = a.createBufferSource();
+  src.buffer = whooshBuf;
   const f = a.createBiquadFilter();
-  f.type = 'lowpass';
-  f.frequency.value = 4200;
+  f.type = 'bandpass';
+  f.Q.value = 1.4;
+  f.frequency.setValueAtTime(300, t);
+  f.frequency.exponentialRampToValueAtTime(3200, t + 0.42);
   const g = a.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vol, t + 0.004);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(f).connect(g).connect(a.destination);
-  o.start(t);
-  o.stop(t + dur + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.22, t + 0.18);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  src.connect(f).connect(g).connect(a.destination);
+  src.start(t);
+  src.stop(t + 0.55);
 }
 
 function renderMute() {
@@ -910,27 +996,76 @@ muteBtn.addEventListener('click', () => {
   renderMute();
 });
 
+// ---------- randomness ----------
+// Each answer comes from true random bytes (random.org's atmospheric-noise
+// generator) hashed with SHA-256 together with the browser's CSPRNG. The result
+// is at least as unpredictable as either source alone, and if random.org can't
+// be reached it carries on with the CSPRNG.
+const TRUE_RNG_URL = 'https://www.random.org/cgi-bin/randbyte?nbytes=64&format=h';
+const rngNote = document.getElementById('rng');
+const truePool = [];
+let poolFill = null;
+let mixCounter = 0;
+
+function fillPool() {
+  if (!poolFill) {
+    poolFill = fetch(TRUE_RNG_URL, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((text) => {
+        const bytes = text.trim().split(/\s+/).map((h) => parseInt(h, 16));
+        if (bytes.length < 16 || bytes.some((b) => !(b >= 0 && b < 256))) throw new Error('bad response');
+        truePool.push(...bytes);
+      })
+      .catch(() => {})
+      .finally(() => { poolFill = null; });
+  }
+  return poolFill;
+}
+fillPool();
+
+// 32 mixed random bytes, plus which sources went into them.
+async function mixedBytes() {
+  if (truePool.length < 16) await Promise.race([fillPool(), new Promise((r) => setTimeout(r, 900))]);
+  const remote = truePool.splice(0, 16);
+  if (truePool.length < 16) fillPool();
+  const local = crypto.getRandomValues(new Uint8Array(32));
+  const source = remote.length ? 'random.org atmospheric noise + device CSPRNG' : 'device CSPRNG (random.org unreachable)';
+  if (!crypto.subtle) return { bytes: local, source: 'device CSPRNG' };
+  const input = new Uint8Array(32 + remote.length + 8);
+  input.set(local);
+  input.set(remote, 32);
+  new DataView(input.buffer).setFloat64(32 + remote.length, ++mixCounter);
+  return { bytes: new Uint8Array(await crypto.subtle.digest('SHA-256', input)), source };
+}
+
+// Uniform integer in [0, n) by rejection sampling, so no answer is favoured.
+function uniformFrom(bytes, n) {
+  const limit = 256 - (256 % n);
+  for (const b of bytes) if (b < limit) return b % n;
+  return uniformFrom(crypto.getRandomValues(new Uint8Array(32)), n);
+}
+function randInt(n) {
+  return uniformFrom(crypto.getRandomValues(new Uint8Array(32)), n);
+}
+
 // ---------- decision logic ----------
 // One press of ASK: the light races round every answer a few times, slows,
 // and stops on the decision, which stays lit until ASK is pressed again.
+// The lights start at once; the answer is drawn while they run, and the
+// slowdown is planned so the light lands on it.
 const FAST_LAPS = reduceMotion ? 1 : 3;
-const FAST_MS = 55;
-// Each window chirps its own note, so a lap plays a little rising run.
-const NOTES = [1480, 1660, 1860, 2090, 2350, 2640];
+const STEP_MS = 60;                       // the real unit steps every ~60 ms
+const SLOW_MIN = reduceMotion ? 4 : 9;
 let powered = true;
 let holding = false;
 let pressedAt = -1e9;
 let spinning = false;
 let pos = randInt(CHASE.length);
 let lit = -1;
-let stepsDone = 0, fastSteps = 0, totalSteps = 0;
+let stepsDone = 0, fastSteps = 0, slowFrom = 0, totalSteps = 0;
+let target = null;                        // index into CHASE, once drawn
+let run = 0;
 let timer = null;
-
-function randInt(n) {
-  const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  return buf[0] % n;
-}
 
 function light(i) {
   lit = i;
@@ -938,13 +1073,19 @@ function light(i) {
 }
 
 function decide() {
-  const n = CHASE.length;
   spinning = true;
+  stopWipe();
   readout.classList.remove('show');
   stepsDone = 0;
-  fastSteps = FAST_LAPS * n;
-  // randInt(n) makes every final window equally likely.
-  totalSteps = fastSteps + (reduceMotion ? 4 : 9) + randInt(n);
+  fastSteps = FAST_LAPS * CHASE.length;
+  totalSteps = 0;
+  target = null;
+  const thisRun = ++run;
+  mixedBytes().then(({ bytes, source }) => {
+    if (thisRun !== run) return;
+    target = uniformFrom(bytes, CHASE.length);
+    if (rngNote) rngNote.textContent = `Randomness: ${source}`;
+  });
   step();
 }
 
@@ -952,24 +1093,74 @@ function step() {
   pos = (pos + 1) % CHASE.length;
   light(CHASE[pos]);
   stepsDone++;
-  const p = Math.max(0, (stepsDone - fastSteps) / (totalSteps - fastSteps));
-  chirp(NOTES[pos], 0.045 + 0.05 * p);
-  if (stepsDone >= totalSteps) {
+  beep();
+  // Once the fast laps are done and the answer is in, plan a slowdown of
+  // SLOW_MIN..SLOW_MIN+5 steps that ends on it.
+  if (!totalSteps && target !== null && stepsDone >= fastSteps) {
+    const n = CHASE.length;
+    slowFrom = stepsDone;
+    totalSteps = stepsDone + SLOW_MIN + ((target - pos - SLOW_MIN) % n + n) % n;
+  }
+  if (totalSteps && stepsDone >= totalSteps) {
     finish();
     return;
   }
-  timer = setTimeout(step, FAST_MS + 520 * p * p);
+  const p = totalSteps ? (stepsDone - slowFrom) / (totalSteps - slowFrom) : 0;
+  timer = setTimeout(step, STEP_MS + 520 * p * p);
 }
 
 function finish() {
   spinning = false;
   timer = null;
-  const note = NOTES[pos];
-  setTimeout(() => chirp(note * 1.26, 0.07, 0.08), 110);
-  setTimeout(() => chirp(note * 1.5, 0.12, 0.08), 210);
-  readout.textContent = leds[lit].text;
-  readout.classList.add('show');
+  const text = leds[lit].text;
+  const thisRun = run;
   hint.textContent = 'Press ASK again for a second opinion';
+  gameShowWipe(text).then(() => {
+    if (thisRun !== run || spinning) return;
+    readout.textContent = text;
+    readout.classList.add('show');
+  });
+}
+
+// ---------- game-show wipe ----------
+// The answer sweeps across the whole screen on a slanted, striped band, holds,
+// and sweeps off the other side; the small readout stays behind afterwards.
+const wipeBand = document.querySelector('#wipe .band');
+const wipeWord = document.querySelector('#wipe .word');
+let wipeAnims = [];
+function stopWipe() {
+  wipeAnims.forEach((a) => a.cancel());
+  wipeAnims = [];
+}
+function gameShowWipe(text) {
+  stopWipe();
+  wipeWord.textContent = text;
+  const at = (x) => `translate(${x}, -50%) skewX(-16deg)`;
+  const inOut = 'cubic-bezier(.65,0,.35,1)';
+  if (reduceMotion) {
+    wipeAnims = [wipeBand.animate(
+      [{ transform: at(0), opacity: 0 }, { transform: at(0), opacity: 1, offset: 0.15 }, { transform: at(0), opacity: 1, offset: 0.85 }, { transform: at(0), opacity: 0 }],
+      { duration: 2000 })];
+  } else {
+    whoosh();
+    setTimeout(() => { if (wipeAnims.length) whoosh(); }, 1850);
+    wipeAnims = [
+      wipeBand.animate([
+        { transform: at('-110%'), easing: inOut },
+        { transform: at('0%'), offset: 0.2 },
+        { transform: at('0%'), offset: 0.8, easing: inOut },
+        { transform: at('110%') },
+      ], { duration: 2400 }),
+      wipeWord.animate([
+        { transform: 'skewX(16deg) translateX(-30vw) scale(.8)', opacity: 0, easing: 'cubic-bezier(.2,.8,.2,1)' },
+        { transform: 'skewX(16deg) translateX(0) scale(1.06)', opacity: 1, offset: 0.26 },
+        { transform: 'skewX(16deg) translateX(0) scale(1)', opacity: 1, offset: 0.34 },
+        { transform: 'skewX(16deg) translateX(0) scale(1)', opacity: 1, offset: 0.78, easing: 'cubic-bezier(.7,0,.8,.4)' },
+        { transform: 'skewX(16deg) translateX(40vw) scale(.9)', opacity: 0 },
+      ], { duration: 2400 }),
+    ];
+  }
+  return wipeAnims[0].finished.then(() => {}, () => {});
 }
 
 function askDown() {
@@ -993,9 +1184,10 @@ function setPower(on) {
   timer = null;
   spinning = false;
   light(-1);
+  run++;
+  stopWipe();
   readout.classList.remove('show');
   hint.textContent = on ? HINT_READY : 'Power is off. Slide the switch to ON';
-  if (on) chirp(2640, 0.06, 0.05);
 }
 
 // ---------- input ----------
@@ -1071,6 +1263,9 @@ function layout() {
   camera.updateProjectionMatrix();
   controls.minDistance = fitDistance * 0.45;
   controls.maxDistance = fitDistance * 1.7;
+  // Haze starts behind the device even at the furthest zoom.
+  scene.fog.near = fitDistance * 1.7 + 4;
+  scene.fog.far = scene.fog.near + 26;
   renderer.setSize(innerWidth, innerHeight);
   composer.setSize(innerWidth, innerHeight);
   bloomComposer.setSize(innerWidth, innerHeight);
@@ -1109,6 +1304,7 @@ function frame() {
     let spill = 0;
     for (const o of leds) if (o !== l) spill += o.level / (1 + 8 * o.pos.distanceToSquared(l.pos));
     l.mat.emissiveIntensity = l.level * 9 + spill * 0.35;
+    l.bloomMat.color.copy(LED_COLOR).multiplyScalar(l.mat.emissiveIntensity * SMOKE_GLOW);
   }
   ledLight.position.copy(brightest.pos);
   ledLight.intensity = brightest.level * 1.2;
@@ -1120,7 +1316,6 @@ function frame() {
   nub.position.x += (nubX - nub.position.x) * ease(30);
   nub.position.y += ((switchHeld ? NUB_DOWN : NUB_UP) - nub.position.y) * ease(40);
 
-  if (bokeh) bokeh.uniforms.focus.value = camera.position.distanceTo(TARGET);
   film.uniforms.time.value += dt;
   renderBloom();
   composer.render(dt);
