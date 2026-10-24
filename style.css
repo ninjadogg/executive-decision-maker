@@ -10,7 +10,9 @@
   --lamp: #ff3b1f;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+/* The page never scrolls and the 3D view does its own pinch-zoom, so the browser
+   shouldn't zoom any of it (including the loading screen) on touch. */
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; touch-action: none; }
 body { font: 14px/1.4 "Helvetica Neue", Arial, sans-serif; }
 canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 header { position: fixed; top: 16px; left: 16px; right: 120px; pointer-events: none; }
