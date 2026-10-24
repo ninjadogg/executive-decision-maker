@@ -1201,6 +1201,10 @@ const logAudio = (msg) => { if (audioLog.length < 60) audioLog.push(`${Math.roun
 function audioContext() {
   if (!ac) {
     try {
+      // iPhones mute web audio while the ring/silent switch is on silent unless
+      // the page's audio session is 'playback' (Safari 16.4+). Sound only ever
+      // starts from a tap here, so play like a media app would.
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
       ac = new (window.AudioContext || window.webkitAudioContext)();
       logAudio(`created ${ac.state} ${ac.sampleRate}`);
       noiseBuf = ac.createBuffer(1, Math.round(ac.sampleRate * 0.05), ac.sampleRate);
