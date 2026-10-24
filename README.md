@@ -4,6 +4,10 @@ A 3D, in-browser tribute to the classic Radio Shack *Executive Decision Maker* d
 
 Press **ASK** (or Space / Enter). The light buzzes its way around every answer a few times, slows down and stops on a decision, which sweeps across the screen game-show style and stays lit until you ask again. Slide the switch to turn it off. Drag to look around.
 
+## Monthly themes
+
+The backdrop changes with the month. October is a moonlit Halloween night: carved jack-o'-lanterns with flickering candles, fallen leaves, tombstones, bare trees, bats and a cobweb on the device, with the answer wipe and loading screen in orange and purple. Other months use the studio set for now. Preview any theme with `?theme=halloween` or `?theme=studio`; themes live in `themes.js`.
+
 ## Randomness
 
 Each answer is drawn from true random bytes from [random.org](https://www.random.org) (atmospheric noise), hashed with SHA-256 together with the browser's cryptographic RNG, then reduced to one of six answers by rejection sampling so none is favoured. If random.org can't be reached the page carries on with the browser RNG alone; the footer says which was used. Fetching from random.org means each visitor's browser contacts random.org.

@@ -8,6 +8,9 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { THEME, themeConfig, buildThemeProps } from './themes.js';
+
+const CFG = themeConfig();
 
 // The six windows, laid out as on the original faceplate: two columns, three rows.
 const WINDOWS = [
@@ -69,7 +72,7 @@ const DPR = Math.min(devicePixelRatio, LITE ? 1.5 : 2);
 renderer.setPixelRatio(DPR);
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = CFG.exposure;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.VSMShadowMap;
 RectAreaLightUniformsLib.init();
@@ -96,14 +99,14 @@ await Promise.race([
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1b1917);
 const pmrem = new THREE.PMREMGenerator(renderer);
-// A dark studio with a few bright panels, so glossy surfaces pick up crisp
-// softbox and window reflections the way they would in a product shot.
+// A dark room with a few bright panels (from the month's theme), so glossy
+// surfaces pick up crisp softbox and window reflections, like a product shot.
 function studioEnvironment() {
   const env = new THREE.Scene();
-  const room = new THREE.Mesh(new THREE.BoxGeometry(40, 16, 40), new THREE.MeshBasicMaterial({ color: 0x5a554e, side: THREE.BackSide }));
+  const room = new THREE.Mesh(new THREE.BoxGeometry(40, 16, 40), new THREE.MeshBasicMaterial({ color: CFG.room, side: THREE.BackSide }));
   room.position.y = 7;
   env.add(room);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ color: 0x24211e }));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ color: CFG.envFloor }));
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.9;
   env.add(floor);
@@ -115,14 +118,11 @@ function studioEnvironment() {
     m.lookAt(0, 2, 0);
     env.add(m);
   };
-  panel(10, 5, 7, 0xfff3e2, [-2, 14.5, 8]);     // overhead softbox, matches the area light
-  panel(2, 10, 3.5, 0xffffff, [-19.5, 6, 2]);   // left strip
-  panel(2, 10, 2.5, 0xdfe8ff, [19.5, 6, -4]);   // right strip, cool
-  panel(12, 6, 1.6, 0xffe2b8, [0, 7, -19.5]);   // warm window behind
+  for (const args of CFG.panels) panel(...args);
   return env;
 }
 scene.environment = pmrem.fromScene(studioEnvironment(), 0.02).texture;
-scene.environmentIntensity = 0.7;
+scene.environmentIntensity = CFG.envIntensity;
 
 const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 120);
 const VIEW_DIR = new THREE.Vector3(0.3, 0.52, 0.8).normalize();
@@ -144,7 +144,21 @@ scene.add(key);
 const rim = new THREE.DirectionalLight(0xbcd0ff, 0.9);
 rim.position.set(7, 5, -8);
 scene.add(rim);
-scene.add(new THREE.HemisphereLight(0xfff6ea, 0x3a332c, 0.25));
+const hemi = new THREE.HemisphereLight(0xfff6ea, 0x3a332c, 0.25);
+scene.add(hemi);
+if (CFG.lights) {
+  const L = CFG.lights;
+  softbox.color.set(L.softbox[0]);
+  softbox.intensity = L.softbox[1];
+  key.color.set(L.key[0]);
+  key.intensity = L.key[1];
+  key.position.set(...L.key[2]);
+  rim.color.set(L.rim[0]);
+  rim.intensity = L.rim[1];
+  hemi.color.set(L.hemi[0]);
+  hemi.groundColor.set(L.hemi[1]);
+  hemi.intensity = L.hemi[2];
+}
 
 // ---------- textures ----------
 function makeCanvas(w, h) {
@@ -699,12 +713,12 @@ const rubber = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.95
 // A wide floor inside a dome of the same tone, both fogged to that tone, so the
 // set fades out evenly from every angle (the dome goes through the same fog and
 // tone mapping as the floor, so there is no visible horizon).
-const SET_TONE = 0x9a948c;                 // matches the lit floor after tone mapping
+const SET_TONE = CFG.tone;                  // the studio's tone matches its lit floor after tone mapping
 scene.fog = new THREE.Fog(SET_TONE, 12, 32);
 // Purely diffuse (Lambert): a matte floor shouldn't pick up the softbox's
 // specular sheen, which flares into a bright band at grazing angles.
 const floor = new THREE.Mesh(new THREE.CircleGeometry(80, 96), new THREE.MeshLambertMaterial({
-  color: 0x8a847d,
+  color: CFG.floor,
   bumpMap: toTexture(noiseCanvas(512, '#808080', 40000, 0.35), { repeat: 40, color: false }), bumpScale: 0.3,
 }));
 floor.rotation.x = -Math.PI / 2;
@@ -1022,6 +1036,20 @@ const pickables = [askHit, switchHit];
 scene.updateMatrixWorld(true);
 const TARGET = plate.localToWorld(new THREE.Vector3(0, -0.5, 0.15));
 
+// ---------- monthly theme props ----------
+if (THEME === 'halloween') await stage(0.74, 'Carving the pumpkins');
+const themeUpdate = buildThemeProps({
+  scene, camera, makeCanvas, toTexture, BLOOM_LAYER,
+  viewPoint: TARGET.clone().addScaledVector(VIEW_DIR, 11),
+  anchors: {
+    web: [
+      new THREE.Vector3(-(W / 2 - INSET), wallTopY(Z_OUT_BACK) - 0.02, Z_OUT_BACK - WALL_BEV),
+      new THREE.Vector3(-W / 2, BASE_TOP, -D / 2),
+      new THREE.Vector3(-W / 2 - 0.8, 0.01, -D / 2 - 0.5),
+    ],
+  },
+});
+
 // ---------- post ----------
 await stage(0.78, 'Wiring the buzzer');
 // Bloom is selective: a second render with everything but the LEDs blacked out
@@ -1044,6 +1072,11 @@ function renderBloom() {
   scene.fog = null;
   renderer.shadowMap.autoUpdate = false;
   scene.traverse((o) => {
+    if (o.isLine) {                         // cobweb threads and the like: not glowing
+      stashed.set(o, [o.material, o.visible]);
+      o.visible = false;
+      return;
+    }
     if (!o.isMesh || o.material.visible === false) return;
     stashed.set(o, [o.material, o.visible]);
     if (bloomLayer.test(o.layers)) o.material = o.userData.bloomMat;
@@ -1598,6 +1631,7 @@ function frame() {
   nub.position.y += ((switchHeld ? NUB_DOWN : NUB_UP) - nub.position.y) * ease(40);
 
   film.uniforms.time.value += dt;
+  themeUpdate?.(performance.now() / 1000);
   renderBloom();
   composer.render(dt);
   requestAnimationFrame(frame);

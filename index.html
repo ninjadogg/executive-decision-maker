@@ -6,6 +6,14 @@
   <title>Executive Decision Maker</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect x=%274%27 y=%276%27 width=%2724%27 height=%2722%27 rx=%273%27 fill=%27%238a3a17%27/%3E%3Crect x=%276%27 y=%274%27 width=%2720%27 height=%2716%27 rx=%272%27 fill=%27%23111%27/%3E%3Ccircle cx=%2716%27 cy=%2712%27 r=%273%27 fill=%27%23ff2a10%27/%3E%3C/svg%3E">
   <meta name="description" content="A 3D tribute to the classic Radio Shack Executive Decision Maker. Press ASK and let the machine decide.">
+  <script>
+    // Pick the month's backdrop theme (or ?theme=name) before anything renders.
+    (() => {
+      const byMonth = { 9: 'halloween' };
+      window.__theme = new URLSearchParams(location.search).get('theme') || byMonth[new Date().getMonth()] || 'studio';
+      document.documentElement.dataset.theme = window.__theme;
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link id="gfonts" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&family=Montserrat+Alternates:wght@800&family=Press+Start+2P&display=swap">
@@ -93,6 +101,17 @@
       #loader { transition: opacity .4s; }
       #loader.out { transform: none; opacity: 0; }
     }
+    /* October: orange and purple instead of the 70s gold, orange and red. */
+    :root[data-theme="halloween"] { --bg: #120b16; }
+    [data-theme="halloween"] #loader { background: #120b16; }
+    [data-theme="halloween"] #loader .stripes { background: linear-gradient(#ff8a1c 0 33.3%, #ff5a0a 33.3% 66.6%, #6b2fa0 66.6%); }
+    [data-theme="halloween"] #loader h2 { text-shadow: 3px 3px 0 #6b2fa0, 6px 6px 0 #ff5a0a; }
+    [data-theme="halloween"] #wipe .band {
+      background: linear-gradient(to bottom,
+        #ff8a1c 0 6%, #ff5a0a 6% 11%, #6b2fa0 11% 16%, #140a18 16% 84%,
+        #6b2fa0 84% 89%, #ff5a0a 89% 94%, #ff8a1c 94% 100%);
+    }
+    [data-theme="halloween"] #wipe .word { text-shadow: 3px 3px 0 #6b2fa0, 6px 6px 0 #ff5a0a, 9px 9px 0 #ff8a1c, 0 0 40px rgba(255, 140, 40, .5); }
     #fail { display: none; position: fixed; inset: 0; place-items: center; text-align: center; padding: 16px; color: var(--muted); }
   </style>
   <script type="importmap">
@@ -161,6 +180,12 @@
         px('#050303', 26, 33, 7, 2); px('#3a3a3a', 26, 33, 2, 2);   // ON/OFF slide
         px('#e6e1d6', 40, 33, 16, 2);                               // wordmark
         px('#c8c6c2', 64, 32, 4, 4); px('#1a1a1a', 65, 33, 2, 2);    // ASK button
+        if (window.__theme === 'halloween') {             // a jack-o'-lantern beside it
+          const glow = Math.sin(t / 70) > -0.6 ? '#ffd23a' : '#c9861a';
+          px('#d4601a', 86, 50, 9, 8); px('#d4601a', 85, 51, 11, 6); px('#a8420e', 90, 50, 1, 8);
+          px('#4d5a24', 90, 47, 2, 3);
+          px(glow, 87, 52, 2, 1); px(glow, 92, 52, 2, 1); px(glow, 88, 55, 5, 1); px(glow, 89, 54, 1, 1); px(glow, 91, 54, 1, 1);
+        }
       }
 
       function loop(t) {
