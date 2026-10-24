@@ -114,7 +114,7 @@
         #6b2fa0 84% 89%, #ff5a0a 89% 94%, #ff8a1c 94% 100%);
     }
     [data-theme="halloween"] #wipe .word { text-shadow: 3px 3px 0 #6b2fa0, 6px 6px 0 #ff5a0a, 9px 9px 0 #ff8a1c, 0 0 40px rgba(255, 140, 40, .5); }
-    #fail { display: none; position: fixed; inset: 0; place-items: center; text-align: center; padding: 16px; color: var(--muted); }
+    #fail { display: none; position: fixed; inset: 0; z-index: 11; place-items: center; text-align: center; padding: 16px; color: var(--ink); background: var(--bg); }
   </style>
   <script type="importmap">
     {
@@ -233,7 +233,7 @@
   <div id="readout" aria-live="polite"></div>
   <div id="hint">Press ASK (or Space) · drag to look around</div>
   <footer><span id="rng">Randomness: random.org atmospheric noise + device CSPRNG</span><br>Fan-made tribute · not affiliated with RadioShack</footer>
-  <div id="fail">This needs WebGL. Try a recent version of Chrome, Safari, Firefox or Edge.</div>
+  <div id="fail">This needs WebGL, and the browser isn’t providing it right now. Quit and reopen the browser (it switches 3D off after a graphics crash), and check that hardware acceleration is on.</div>
   <script type="module" src="main.js"></script>
 </body>
 </html>

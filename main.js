@@ -76,6 +76,25 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = CFG.exposure;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.VSMShadowMap;
+
+// If the GPU drops the context (memory pressure, driver reset), say so and
+// reload once at a lower texture budget rather than leaving a dead canvas.
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  const fail = document.getElementById('fail');
+  let tries = 0;
+  try { tries = Number(sessionStorage.getItem('edm-gl-resets') || 0); sessionStorage.setItem('edm-gl-resets', tries + 1); } catch {}
+  if (tries >= 2) {
+    fail.textContent = 'The graphics card keeps resetting. Try closing other tabs, or reopen the browser.';
+    fail.style.display = 'grid';
+    return;
+  }
+  fail.textContent = 'The graphics card reset. Reloading at a lighter setting…';
+  fail.style.display = 'grid';
+  const url = new URL(location.href);
+  url.searchParams.set('tex', tries ? '1024' : '2048');
+  setTimeout(() => location.replace(url), 1200);
+});
 RectAreaLightUniformsLib.init();
 
 // ---------- loading ----------
@@ -136,7 +155,8 @@ scene.add(softbox);
 const key = new THREE.DirectionalLight(0xfff0dc, 1.6);
 key.position.set(-6, 11, 7);
 key.castShadow = true;
-key.shadow.mapSize.set(LITE ? 2048 : 4096, LITE ? 2048 : 4096);
+// 2048 is plenty under VSM's blur; 4096 cost ~270 MB of GPU memory on its own.
+key.shadow.mapSize.set(LITE ? 1024 : 2048, LITE ? 1024 : 2048);
 Object.assign(key.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 2, far: 30 });
 key.shadow.radius = 10;
 key.shadow.blurSamples = 20;
