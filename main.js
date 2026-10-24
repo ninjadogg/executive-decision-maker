@@ -192,20 +192,26 @@ function rosewood(w, h) {
       g.stroke();
     }
   };
+  // Broad colour variation: wide and faint, so it's drawn small, blurred and scaled up.
   const [soft, sg] = makeCanvas(w >> 2, h >> 2);
   sg.fillStyle = '#7e3619';
   sg.fillRect(0, 0, soft.width, soft.height);
   for (let i = 0; i < 46; i++) band(sg, soft.width, soft.height, rand(), 10 + rand() * 50, 0.08 + rand() * 0.12, 4 + rand() * 10, rand() < 0.5 ? '60,18,6' : '170,80,38', 8);
-  for (let i = 0; i < 30; i++) band(sg, soft.width, soft.height, rand(), 4 + rand() * 18, 0.22 + rand() * 0.35, 3 + rand() * 14, '30,8,3', 3 + rand() * 4);
   sg.filter = 'none';
+  // The figure: dark streaks with crisp edges (no blur, which made it look gummy).
+  const [fig, fg] = makeCanvas(w >> 1, h >> 1);
+  for (let i = 0; i < 30; i++) band(fg, fig.width, fig.height, rand(), 4 + rand() * 18, 0.16 + rand() * 0.3, 3 + rand() * 14, '30,8,3');
+  for (let i = 0; i < 30; i++) band(fg, fig.width, fig.height, rand(), 1 + rand() * 4, 0.2 + rand() * 0.3, 3 + rand() * 10, '24,7,2');
+  // Fine grain at full size, on its own layer so it can also be embossed.
+  const [fine, ng] = makeCanvas(w, h);
+  const lines = Math.round((600 * w) / 1024);
+  for (let i = 0; i < lines; i++) band(ng, w, h, rand(), 0.12 + rand() * 0.45, 0.06 + rand() * 0.16, 1 + rand() * 6, rand() < 0.8 ? '42,12,4' : '196,104,56');
   const [c, g] = makeCanvas(w, h);
   g.imageSmoothingQuality = 'high';
   g.drawImage(soft, 0, 0, w, h);
-  const fine = Math.round((600 * w) / 1024);
-  for (let i = 0; i < fine; i++) band(g, w, h, rand(), 0.12 + rand() * 0.45, 0.05 + rand() * 0.14, 1 + rand() * 6, rand() < 0.8 ? '42,12,4' : '196,104,56');
-  for (let i = 0; i < 12; i++) band(g, w, h, rand(), 1.5 + rand() * 3, 0.25 + rand() * 0.25, 3 + rand() * 10, '24,7,2', 1);
-  g.filter = 'none';
-  return c;
+  g.drawImage(fig, 0, 0, w, h);
+  g.drawImage(fine, 0, 0);
+  return { color: c, fine };
 }
 
 function noiseCanvas(size, base, amount, alpha) {
@@ -549,9 +555,12 @@ const WOOD_W = TEX_MAX, WOOD_H = WOOD_W / 2;
 const WOOD_PX = WOOD_W / W;                 // the sheet's width spans the box width
 await stage(0.16, 'Sanding the rosewood');
 const wood = (() => {
-  const src = rosewood(WOOD_W, WOOD_H);
+  const { color: src, fine } = rosewood(WOOD_W, WOOD_H);
+  // Emboss only the fine grain and pores, like wood-grain vinyl, not the figure.
   const [b, bg] = makeCanvas(WOOD_W, WOOD_H);
-  bg.drawImage(src, 0, 0);
+  bg.fillStyle = '#808080';
+  bg.fillRect(0, 0, WOOD_W, WOOD_H);
+  bg.drawImage(fine, 0, 0);
   const k = WOOD_W / 1024;
   for (let i = 0; i < 20000; i++) {
     bg.fillStyle = `rgba(0,0,0,${0.2 + rand() * 0.4})`;
@@ -578,7 +587,7 @@ const wood = (() => {
 // Settled dust on up-facing surfaces: a mottled, matte film plus specks, laid
 // down in world space so it ignores UVs. buildUp adds a heavier band on the
 // wood ledge against the aluminum housing, where a duster never quite reaches.
-const DUST_COLOR = new THREE.Color(0.5, 0.48, 0.45);
+const DUST_COLOR = new THREE.Color(0.36, 0.34, 0.31);
 // Housing footprint on the wood top: xmin, xmax, zmin, zmax.
 const HOUSING = new THREE.Vector4(-(W / 2 - INSET), W / 2 - INSET, -(D / 2 - INSET), D / 2 - 0.03);
 function addDust(material, { amount = 0.15, buildUp = 0 } = {}) {
@@ -596,21 +605,34 @@ varying vec3 vDustN;
 uniform float uDust, uDustEdge;
 uniform vec3 uDustColor;
 uniform vec4 uHousing;
-float dustHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float dustNoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
+float dustHash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float dustNoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p);
   f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(dustHash(i), dustHash(i + vec2(1.0, 0.0)), f.x), mix(dustHash(i + vec2(0.0, 1.0)), dustHash(i + vec2(1.0, 1.0)), f.x), f.y);
+  return mix(
+    mix(mix(dustHash(i), dustHash(i + vec3(1, 0, 0)), f.x), mix(dustHash(i + vec3(0, 1, 0)), dustHash(i + vec3(1, 1, 0)), f.x), f.y),
+    mix(mix(dustHash(i + vec3(0, 0, 1)), dustHash(i + vec3(1, 0, 1)), f.x), mix(dustHash(i + vec3(0, 1, 1)), dustHash(i + vec3(1, 1, 1)), f.x), f.y),
+    f.z);
 }
+// Dust is particles, not paint: fine noise is thresholded by a density that
+// varies broadly, so thin dust is scattered grains and thick dust is a patchy
+// mat. Noise is 3D, so it carries on over bevels and (lightly) down the sides.
 float dustAmount() {
-  float up = smoothstep(0.55, 0.95, normalize(vDustN).y);
-  vec2 p = vDustPos.xz;
-  float mottle = 0.5 * dustNoise(p * 9.0) + 0.3 * dustNoise(p * 31.0) + 0.2 * dustNoise(p * 97.0);
-  float specks = step(0.992, dustHash(floor(p * 900.0)));
-  vec2 d = max(vec2(uHousing.x - p.x, uHousing.z - p.y), vec2(p.x - uHousing.y, p.y - uHousing.w));
-  float outside = max(d.x, d.y);         // distance out from the housing's walls
-  float edge = uDustEdge * (1.0 - smoothstep(0.0, 0.07, outside)) * step(-0.01, outside);
-  return clamp(up * (uDust * (0.35 + 0.9 * mottle) + edge * (0.6 + 0.6 * mottle) + specks * 0.8 * (uDust + edge)), 0.0, 0.85);
+  vec3 n = normalize(vDustN);
+  float up = n.y < -0.2 ? 0.0 : mix(0.15, 1.0, smoothstep(0.0, 0.95, n.y));
+  vec3 p = vDustPos;
+  float density = uDust * (0.35 + 1.3 * dustNoise(p * 6.0)) * up;
+  // Build-up on the wood ledge: a band whose width wanders along the wall.
+  vec2 q = p.xz;
+  vec2 d = max(vec2(uHousing.x - q.x, uHousing.z - q.y), vec2(q.x - uHousing.y, q.y - uHousing.w));
+  float outside = max(d.x, d.y);
+  float reach = 0.02 + 0.06 * dustNoise(vec3(q * 9.0, 3.1));
+  float band = (1.0 - smoothstep(0.0, reach, outside)) * step(-0.01, outside);
+  density += uDustEdge * band * (0.25 + 0.9 * dustNoise(p * 31.0)) * up;
+  float grain = 0.6 * dustNoise(p * 170.0) + 0.4 * dustNoise(p * 520.0);
+  float particles = smoothstep(1.0 - density, 1.25 - density, grain);
+  float haze = density * 0.22;
+  return clamp(max(particles * 0.55, haze), 0.0, 0.6);
 }`)
       .replace('#include <map_fragment>', '#include <map_fragment>\nfloat dust = dustAmount();\ndiffuseColor.rgb = mix(diffuseColor.rgb, uDustColor, dust);')
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 1.0, dust);')
@@ -630,11 +652,10 @@ function vinyl(faceW, faceH, { dusty = false } = {}) {
     return c;
   };
   return addDust(new THREE.MeshPhysicalMaterial({
-    map: fit(dusty ? wood.dusty : wood.map), bumpMap: fit(wood.bump), bumpScale: 0.8,
+    map: fit(dusty ? wood.dusty : wood.map), bumpMap: fit(wood.bump), bumpScale: 0.5,
     roughness: 1, roughnessMap: fit(wood.rough),
-    clearcoat: 0.06, clearcoatRoughness: 0.6,
-    sheen: 0.25, sheenRoughness: 0.8, sheenColor: new THREE.Color(0x6a2a14),
-  }), { amount: 0.12, buildUp: 0.95 });
+    clearcoat: 0.12, clearcoatRoughness: 0.45,
+  }), { amount: 0.1, buildUp: 0.6 });
 }
 const blackPlastic = addDust(new THREE.MeshPhysicalMaterial({
   color: 0x0e0e0e, roughness: 0.42, clearcoat: 0.25, clearcoatRoughness: 0.5,
@@ -717,33 +738,44 @@ for (const [x, z] of [[-1.7, 1.6], [1.7, 1.6], [-1.7, -1.6], [1.7, -1.6]]) {
 const backplaneY = (z) => BASE_TOP + LIP + ((Z_FRONT - z) / (Z_FRONT - Z_BACK)) * RISE;
 const wallTopY = (z) => backplaneY(z) + (GLASS_TOP + 0.02) / Math.cos(SLOPE);
 
-// Side walls: chamfered aluminum wedges. Profile is (-z, y), extruded along x.
-const sideShape = new THREE.Shape([
-  new THREE.Vector2(-Z_OUT_FRONT, BASE_TOP - SEAT),
-  new THREE.Vector2(-Z_OUT_FRONT, wallTopY(Z_OUT_FRONT)),
-  new THREE.Vector2(-Z_OUT_BACK, wallTopY(Z_OUT_BACK)),
-  new THREE.Vector2(-Z_OUT_BACK, BASE_TOP - SEAT),
-]);
-const sideGeo = new THREE.ExtrudeGeometry(sideShape, {
-  depth: STRIP - 2 * WALL_BEV, bevelEnabled: true, bevelSize: WALL_BEV, bevelThickness: WALL_BEV, bevelSegments: 2, curveSegments: 1,
-});
-sideGeo.rotateY(Math.PI / 2);          // profile x (= -z) -> world z, extrusion -> +x
-brushedUVs(sideGeo);
-for (const s of [-1, 1]) {
-  const wall = new THREE.Mesh(sideGeo, aluminum);
-  wall.position.x = s < 0 ? -(W / 2 - INSET) + WALL_BEV : W / 2 - INSET - STRIP + WALL_BEV;
-  wall.castShadow = wall.receiveShadow = true;
-  cabinet.add(wall);
-}
-const backH = wallTopY(Z_OUT_BACK) - BASE_TOP + SEAT;
-const backWall = new THREE.Mesh(brushedUVs(new RoundedBoxGeometry(W - 2 * INSET, backH, BACK_T + WALL_BEV, 3, WALL_BEV)), aluminum);
-backWall.position.set(0, BASE_TOP - SEAT + backH / 2, Z_OUT_BACK - WALL_BEV + (BACK_T + WALL_BEV) / 2);
-backWall.castShadow = backWall.receiveShadow = true;
-cabinet.add(backWall);
+// The aluminum housing is one piece, like bent sheet metal: a U-shaped
+// footprint (two side arms and the back) extruded upward with one bevel all
+// round, then its top raised along the slope. One mesh means the corners flow
+// with no notches, overlaps or coplanar faces.
+const housingGeo = (() => {
+  const xo = W / 2 - INSET - WALL_BEV;              // outer faces land at W/2 - INSET once bevelled
+  const xi = W / 2 - INSET - STRIP + WALL_BEV;      // inner faces land at the glass edge
+  const zbi = Z_BACK + 0.03 - WALL_BEV;             // inner back face just in front of the glass end, so the glass tucks under
+  const zf = Z_OUT_FRONT, zb = Z_OUT_BACK;
+  // Shape coordinates are (x, -z): the shape is extruded along +z, then turned upright.
+  const shape = new THREE.Shape([
+    [-xo, -zf], [-xo, -zb], [xo, -zb], [xo, -zf], [xi, -zf], [xi, -zbi], [-xi, -zbi], [-xi, -zf],
+  ].map(([x, y]) => new THREE.Vector2(x, y)));
+  const y0 = BASE_TOP - SEAT;
+  const depth = wallTopY(zb) - WALL_BEV - y0;
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth, bevelEnabled: true, bevelSize: WALL_BEV, bevelThickness: WALL_BEV, bevelSegments: 3, curveSegments: 1,
+  });
+  geo.rotateX(-Math.PI / 2);                        // extrusion -> +y, shape y -> -z (so world z)
+  geo.translate(0, y0, 0);
+  // Drop the top (cap plus its bevel) to follow the slope; it stays planar
+  // because the drop is linear in z.
+  const p = geo.attributes.position;
+  const topBody = y0 + depth - 1e-5;
+  for (let i = 0; i < p.count; i++) {
+    if (p.getY(i) >= topBody) p.setY(i, p.getY(i) + wallTopY(p.getZ(i)) - wallTopY(zb));
+  }
+  geo.computeVertexNormals();
+  return brushedUVs(geo);
+})();
+const housing = new THREE.Mesh(housingGeo, aluminum);
+housing.castShadow = housing.receiveShadow = true;
+cabinet.add(housing);
 
 const lipH = backplaneY(Z_FRONT) + GLASS_TOP + 0.01 - BASE_TOP + SEAT;
-const lip = new THREE.Mesh(new RoundedBoxGeometry(PW + 0.04, lipH, LIP_D + WALL_BEV, 2, 0.012), blackPlastic);
-lip.position.set(0, BASE_TOP - SEAT + lipH / 2, Z_FRONT + (LIP_D + WALL_BEV) / 2);
+// Front face a hair behind the walls' so the two never share a plane.
+const lip = new THREE.Mesh(new RoundedBoxGeometry(PW + 0.04, lipH, LIP_D + WALL_BEV - 0.004, 2, 0.012), blackPlastic);
+lip.position.set(0, BASE_TOP - SEAT + lipH / 2, Z_FRONT + (LIP_D + WALL_BEV - 0.004) / 2);
 lip.castShadow = lip.receiveShadow = true;
 cabinet.add(lip);
 
@@ -1073,18 +1105,43 @@ let noiseBuf = null;
 let muted = false;
 try { muted = localStorage.getItem('edm-muted') === '1'; } catch {}
 
+// A short log of what the audio engine did, readable as __edm.audioLog when
+// sound misbehaves in a particular browser.
+const audioLog = [];
+let master = null, meter = null, audioPeak = 0;
+// Peak output level since last read, sampled a few times a second (for diagnosing silent browsers).
+setInterval(() => {
+  if (!meter) return;
+  const buf = new Float32Array(meter.fftSize);
+  meter.getFloatTimeDomainData(buf);
+  for (const v of buf) audioPeak = Math.max(audioPeak, Math.abs(v));
+}, 30);
+const logAudio = (msg) => { if (audioLog.length < 60) audioLog.push(`${Math.round(performance.now())} ${msg}`); };
+
 function audioContext() {
   if (!ac) {
     try {
       ac = new (window.AudioContext || window.webkitAudioContext)();
+      logAudio(`created ${ac.state} ${ac.sampleRate}`);
       noiseBuf = ac.createBuffer(1, Math.round(ac.sampleRate * 0.05), ac.sampleRate);
       const d = noiseBuf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = rand() * 2 - 1;
-      ac.onstatechange = renderMute;
-    } catch { return null; }
+      ac.onstatechange = () => { logAudio(`state ${ac.state}`); renderMute(); };
+      // Everything plays through one master bus with a level meter on it.
+      master = ac.createGain();
+      master.gain.value = 2.5;
+      meter = ac.createAnalyser();
+      meter.fftSize = 512;
+      master.connect(meter).connect(ac.destination);
+    } catch (e) {
+      logAudio(`create failed ${e}`);
+      return null;
+    }
   }
   // Safari can also leave a context 'interrupted', not just 'suspended'.
-  if (ac.state !== 'running') ac.resume().catch(() => {});
+  if (ac.state !== 'running') {
+    ac.resume().then(() => logAudio(`resumed ${ac.state}`), (e) => logAudio(`resume failed ${e}`));
+  }
   return ac;
 }
 
@@ -1096,13 +1153,14 @@ function audio() {
 // Browsers only let audio start from a user gesture, and Safari is picky about
 // which events count, so try on every kind of interaction until it's running,
 // playing a one-sample silent buffer to unlock it.
-function unlockAudio() {
+function unlockAudio(e) {
   if (ac && ac.state === 'running') return;
+  logAudio(`unlock on ${e?.type}`);
   const a = audioContext();
   if (!a) return;
   const s = a.createBufferSource();
   s.buffer = a.createBuffer(1, 1, a.sampleRate);
-  s.connect(a.destination);
+  s.connect(master);
   s.start(0);
 }
 for (const ev of ['pointerdown', 'mousedown', 'touchend', 'pointerup', 'click', 'keydown']) {
@@ -1122,7 +1180,7 @@ function tick(gain = 0.25, freq = 2600) {
   const g = a.createGain();
   g.gain.setValueAtTime(gain, t);
   g.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
-  src.connect(f).connect(g).connect(a.destination);
+  src.connect(f).connect(g).connect(master);
   src.start(t);
   src.stop(t + 0.05);
 }
@@ -1154,7 +1212,7 @@ function beep() {
   g.gain.linearRampToValueAtTime(0.09, t + 0.0015);
   g.gain.setValueAtTime(0.09, t + BEEP_S - 0.0015);
   g.gain.linearRampToValueAtTime(0, t + BEEP_S);
-  o.connect(g).connect(a.destination);
+  o.connect(g).connect(master);
   o.start(t);
   o.stop(t + BEEP_S + 0.01);
 }
@@ -1181,7 +1239,7 @@ function whoosh() {
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(0.22, t + 0.18);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
-  src.connect(f).connect(g).connect(a.destination);
+  src.connect(f).connect(g).connect(master);
   src.start(t);
   src.stop(t + 0.55);
 }
@@ -1460,6 +1518,20 @@ controls.minPolarAngle = 0.08;
 controls.maxPolarAngle = 1.5;
 controls.target.copy(TARGET);
 
+// Safari turns a trackpad pinch into page zoom, which just magnifies the
+// rendered bitmap (blurry). Catch the gesture and move the camera instead.
+let pinchFrom = 0;
+document.addEventListener('gesturestart', (e) => {
+  e.preventDefault();
+  pinchFrom = camera.position.distanceTo(controls.target);
+});
+document.addEventListener('gesturechange', (e) => {
+  e.preventDefault();
+  const d = THREE.MathUtils.clamp(pinchFrom / e.scale, controls.minDistance, controls.maxDistance);
+  camera.position.sub(controls.target).setLength(d).add(controls.target);
+});
+document.addEventListener('gestureend', (e) => e.preventDefault());
+
 // ---------- layout ----------
 let fitDistance = 10;
 function layout() {
@@ -1469,7 +1541,7 @@ function layout() {
   const tanHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
   fitDistance = Math.max(3.3 / tanHalf, 3.2 / (tanHalf * aspect));
   camera.updateProjectionMatrix();
-  controls.minDistance = fitDistance * 0.45;
+  controls.minDistance = fitDistance * 0.15;   // close enough to inspect the dust and brushing
   controls.maxDistance = fitDistance * 1.7;
   // Haze starts behind the device even at the furthest zoom.
   scene.fog.near = fitDistance * 1.7 + 4;
@@ -1538,7 +1610,9 @@ loader.set(1, 'Ready');
 
 // For automated checks.
 window.__edm = {
-  askDown, askUp, setPower, ready: false,
+  askDown, askUp, setPower, ready: false, audioLog,
+  get audioState() { return ac ? ac.state : 'none'; },
+  readPeak() { const p = audioPeak; audioPeak = 0; return p; },
   get answer() { return !spinning && lit >= 0 ? leds[lit].text : null; },
   printPNG: () => printCanvas().toDataURL(),
   // Point the camera at a spot on the faceplate (plate-local) or in the world.
