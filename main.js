@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
@@ -76,8 +75,33 @@ RectAreaLightUniformsLib.init();
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1b1917);
 const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
-scene.environmentIntensity = 0.45;
+// A dark studio with a few bright panels, so glossy surfaces pick up crisp
+// softbox and window reflections the way they would in a product shot.
+function studioEnvironment() {
+  const env = new THREE.Scene();
+  const room = new THREE.Mesh(new THREE.BoxGeometry(40, 16, 40), new THREE.MeshBasicMaterial({ color: 0x3a3632, side: THREE.BackSide }));
+  room.position.y = 7;
+  env.add(room);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ color: 0x24211e }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -0.9;
+  env.add(floor);
+  const panel = (w, h, intensity, color, pos) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({
+      color: new THREE.Color(color).multiplyScalar(intensity), side: THREE.DoubleSide,
+    }));
+    m.position.set(...pos);
+    m.lookAt(0, 2, 0);
+    env.add(m);
+  };
+  panel(10, 5, 7, 0xfff3e2, [-2, 14.5, 8]);     // overhead softbox, matches the area light
+  panel(2, 10, 3.5, 0xffffff, [-19.5, 6, 2]);   // left strip
+  panel(2, 10, 2.5, 0xdfe8ff, [19.5, 6, -4]);   // right strip, cool
+  panel(12, 6, 1.6, 0xffe2b8, [0, 7, -19.5]);   // warm window behind
+  return env;
+}
+scene.environment = pmrem.fromScene(studioEnvironment(), 0.02).texture;
+scene.environmentIntensity = 0.7;
 
 const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 120);
 const VIEW_DIR = new THREE.Vector3(0.3, 0.52, 0.8).normalize();
@@ -126,15 +150,20 @@ function rosewood(size = 1024) {
   const [c, g] = makeCanvas(size, size);
   g.fillStyle = '#8a3b1b';
   g.fillRect(0, 0, size, size);
+  // Grain lines run roughly parallel: every streak follows one shared flow, with
+  // a little drift of its own so the figure gently converges and spreads.
+  const TAU = Math.PI * 2;
+  const p1 = rand() * TAU, p2 = rand() * TAU, p3 = rand() * TAU;
+  const flow = (y) => 14 * Math.sin((TAU * y) / size + p1) + 6 * Math.sin((2 * TAU * y) / size + p2) + 2.5 * Math.sin((3 * TAU * y) / size + p3);
   const band = (x0, width, alpha, wobble, color, blur = 0) => {
     g.filter = blur ? `blur(${blur}px)` : 'none';
-    const k = 1 + Math.floor(rand() * 2), f = (Math.PI * 2 * k) / size, ph = rand() * 6.3;
+    const k = 1 + Math.floor(rand() * 2), f = (TAU * k) / size, ph = rand() * TAU, follow = 0.7 + rand() * 0.6;
     g.strokeStyle = `rgba(${color},${alpha})`;
     g.lineWidth = width;
     for (const off of [-size, 0, size]) {
       g.beginPath();
       for (let y = 0; y <= size; y += 8) {
-        const x = x0 + off + Math.sin(y * f + ph) * wobble + Math.sin(y * f * 4 + ph) * wobble * 0.15;
+        const x = x0 + off + flow(y) * follow + Math.sin(y * f + ph) * wobble * 0.35;
         y ? g.lineTo(x, y) : g.moveTo(x, y);
       }
       g.stroke();
@@ -143,8 +172,8 @@ function rosewood(size = 1024) {
   // Broad colour variation first, then fine grain, then the heavy figure.
   for (let i = 0; i < 46; i++) band(rand() * size, 10 + rand() * 50, 0.08 + rand() * 0.12, 4 + rand() * 10, rand() < 0.5 ? '60,18,6' : '170,80,38', 8);
   for (let i = 0; i < 600; i++) band(rand() * size, 0.4 + rand() * 1.6, 0.05 + rand() * 0.14, 1 + rand() * 6, rand() < 0.8 ? '42,12,4' : '196,104,56');
-  for (let i = 0; i < 26; i++) band(rand() * size, 3 + rand() * 14, 0.25 + rand() * 0.35, 3 + rand() * 14, '30,8,3', 2 + rand() * 3);
-  for (let i = 0; i < 14; i++) band(rand() * size, 1 + rand() * 3, 0.3 + rand() * 0.3, 3 + rand() * 14, '22,6,2', 0.6);
+  for (let i = 0; i < 30; i++) band(rand() * size, 4 + rand() * 18, 0.22 + rand() * 0.35, 3 + rand() * 14, '30,8,3', 3 + rand() * 4);
+  for (let i = 0; i < 12; i++) band(rand() * size, 1.5 + rand() * 3, 0.25 + rand() * 0.25, 3 + rand() * 10, '24,7,2', 1);
   g.filter = 'none';
   return c;
 }
@@ -170,6 +199,37 @@ function brushedCanvas(w, h, base) {
   }
   return c;
 }
+
+// Fine household dust: mostly tiny specks, a few bigger soft flecks, the odd
+// lint fibre. density(u, v) (0..1 across the canvas) lets it gather in corners.
+function sprinkleDust(g, w, h, count, { density = () => 1, color = '214,208,196', fibres = 0 } = {}) {
+  for (let i = 0; i < count; i++) {
+    const x = rand() * w, y = rand() * h;
+    if (rand() > density(x / w, y / h)) continue;
+    const big = rand() < 0.015;
+    g.fillStyle = `rgba(${color},${big ? 0.12 + rand() * 0.14 : 0.04 + rand() * 0.13})`;
+    g.beginPath();
+    g.arc(x, y, big ? 0.8 + rand() * 0.6 : 0.3 + rand() * 0.45, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.lineWidth = 0.7;
+  for (let i = 0; i < fibres; i++) {
+    const x = rand() * w, y = rand() * h, len = 12 + rand() * 50, a = rand() * Math.PI * 2;
+    g.strokeStyle = `rgba(${color},${0.08 + rand() * 0.1})`;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.bezierCurveTo(
+      x + Math.cos(a) * len * 0.4 + (rand() - 0.5) * 20, y + Math.sin(a) * len * 0.4 + (rand() - 0.5) * 20,
+      x + Math.cos(a) * len * 0.7 + (rand() - 0.5) * 20, y + Math.sin(a) * len * 0.7 + (rand() - 0.5) * 20,
+      x + Math.cos(a) * len, y + Math.sin(a) * len);
+    g.stroke();
+  }
+}
+// Dust settles thicker against the walls and the back edge of the glass.
+const edgeDust = (x, y) => {
+  const edge = Math.min(x, 1 - x, y * 0.8, (1 - y) * 2);
+  return 0.35 + 0.65 * Math.max(0, 1 - edge / 0.07);
+};
 
 function roundRect(g, x, y, w, h, r) {
   g.beginPath();
@@ -242,10 +302,15 @@ function faceplateMaps() {
   g.strokeStyle = '#3a3a3a';
   g.stroke();
   g.drawImage(printCanvas(), 0, 0);
-  for (let i = 0; i < 320; i++) {
-    g.fillStyle = `rgba(200,195,185,${0.08 + rand() * 0.25})`;
-    g.fillRect(rand() * CW, rand() * CH, 1 + rand() * 1.5, 1 + rand() * 1.5);
+  // A faint film of settled dust along the walls and back edge, then the specks.
+  for (const [x0, y0, x1, y1] of [[0, 0, u(0.25), 0], [CW, 0, CW - u(0.25), 0], [0, 0, 0, u(0.3)]]) {
+    const grd = g.createLinearGradient(x0, y0, x1, y1);
+    grd.addColorStop(0, 'rgba(200,194,182,.07)');
+    grd.addColorStop(1, 'rgba(200,194,182,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, CW, CH);
   }
+  sprinkleDust(g, CW, CH, 7000, { density: edgeDust, fibres: 8 });
 
   // Glass roughness (green channel): polished, with soft smudges and a couple of
   // thumbprints by the ASK button. Rough spots also blur what's seen through them.
@@ -265,8 +330,104 @@ function faceplateMaps() {
   const ax = (ASK.x / PW + 0.5) * r.width, az = (ASK.z / PL + 0.5) * r.height;
   smudge(ax - 30, az - 40, 34, 0.5);
   smudge(ax - 60, az - 10, 26, 0.35);
+  // Dust specks diffuse the reflection where they sit.
+  sprinkleDust(rg, r.width, r.height, 2500, { density: edgeDust, color: '0,200,0' });
 
   return { ink: toTexture(c), roughness: toTexture(r, { color: false }) };
+}
+
+// The circuit board under the glass: red solder mask over glass-fibre board,
+// copper traces just visible under the mask, tinned pads, white silkscreen.
+// Returns colour plus an ORM-style map (G = roughness, B = metalness).
+const RES_DX = 0.4;                         // each LED's resistor sits to its right
+function pcbMaps() {
+  const [c, g] = makeCanvas(CW, CH);
+  const [o, og] = makeCanvas(CW, CH);
+  g.fillStyle = '#5a170f';
+  g.fillRect(0, 0, CW, CH);
+  for (let i = 0; i < 14000; i++) {
+    g.fillStyle = rand() < 0.5 ? `rgba(0,0,0,${0.05 * rand()})` : `rgba(255,120,90,${0.04 * rand()})`;
+    g.fillRect(rand() * CW, rand() * CH, 2 + rand() * 5, 1 + rand() * 2);
+  }
+  og.fillStyle = 'rgb(0,140,0)';
+  og.fillRect(0, 0, CW, CH);
+
+  const trace = (pts, width = 0.03) => {
+    for (const [ctx, style] of [[g, '#7a2a18'], [og, 'rgb(0,95,0)']]) {
+      ctx.strokeStyle = style;
+      ctx.lineWidth = u(width);
+      ctx.lineCap = ctx.lineJoin = 'round';
+      ctx.beginPath();
+      pts.forEach(([x, z], i) => { const [px, py] = toPx(x, z); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+      ctx.stroke();
+    }
+  };
+  const pad = (x, z, r, hole = 0) => {
+    const [px, py] = toPx(x, z);
+    g.fillStyle = '#cfc7b6';
+    og.fillStyle = 'rgb(0,55,255)';
+    for (const ctx of [g, og]) {
+      ctx.beginPath();
+      ctx.arc(px, py, u(r), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (hole) {
+      g.fillStyle = '#1a0805';
+      g.beginPath();
+      g.arc(px, py, u(hole), 0, Math.PI * 2);
+      g.fill();
+    }
+  };
+
+  // Power buses down the gutters, hidden behind the paint but there all the same.
+  trace([[-0.02, -1.0], [-0.02, 1.25]], 0.06);
+  trace([[0.02, -1.0], [0.02, 1.25]], 0.06);
+  g.font = `600 ${u(0.06)}px ${FONT}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  WINDOWS.forEach((w, i) => {
+    const x = COL_X[w.col], z = ROW_Z[w.row] + LED_DZ;
+    const toBus = w.col ? -0.02 : 0.02;
+    trace([[x + 0.06, z], [x + RES_DX - 0.08, z]]);
+    trace([[x + RES_DX + 0.08, z], [x + RES_DX + 0.2, z], [x + RES_DX + 0.2, z + 0.2], [toBus, z + 0.2]]);
+    trace([[x - 0.06, z], [x - 0.4, z], [x - 0.4, z - 0.2], [toBus, z - 0.2]]);
+    pad(x, z, 0.13, 0);
+    pad(x + RES_DX - 0.08, z, 0.035, 0.012);
+    pad(x + RES_DX + 0.08, z, 0.035, 0.012);
+    g.fillStyle = '#e6e1d6';
+    let [lx, ly] = toPx(x - 0.24, z + 0.1);
+    g.fillText(`D${i + 1}`, lx, ly);
+    [lx, ly] = toPx(x + RES_DX, z - 0.09);
+    g.fillText(`R${i + 1}`, lx, ly);
+  });
+  return { map: toTexture(c), orm: toTexture(o, { color: false }) };
+}
+
+// Black paint on the back of the glass, clear only through the six windows.
+function paintMask() {
+  const [c, g] = makeCanvas(CW, CH);
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, CW, CH);
+  g.globalCompositeOperation = 'destination-out';
+  const inset = 0.014;
+  for (const w of WINDOWS) {
+    const [bx, by] = toPx(COL_X[w.col] - BOX_W / 2 + inset, ROW_Z[w.row] - BOX_H / 2 + inset);
+    roundRect(g, bx, by, u(BOX_W - 2 * inset), u(BOX_H - 2 * inset), u(0.09));
+    g.fill();
+  }
+  return toTexture(c);
+}
+
+// Carbon-film resistor bands: orange, orange, brown, gold (330 ohm).
+function resistorTexture() {
+  const [c, g] = makeCanvas(16, 128);
+  g.fillStyle = '#cdb68a';
+  g.fillRect(0, 0, 16, 128);
+  [['#c8641e', 30], ['#c8641e', 46], ['#5a3014', 62], ['#b8902c', 92]].forEach(([col, y]) => {
+    g.fillStyle = col;
+    g.fillRect(0, y, 16, 9);
+  });
+  return toTexture(c);
 }
 
 function glowTexture() {
@@ -282,12 +443,42 @@ function glowTexture() {
 }
 
 // ---------- materials ----------
-function vinyl() {
+// Matte, oiled-rosewood finish: no gloss coat to speak of, roughness that
+// follows the figure, and open pores along the grain.
+// aspect: face height / width, so the grain keeps its true scale on short faces.
+function vinyl({ aspect = 1, dusty = false } = {}) {
   const src = rosewood();
-  const map = toTexture(src, { repeat: 1 });
-  const bump = toTexture(src, { repeat: 1, color: false });
+  const [b, bg] = makeCanvas(src.width, src.height);
+  bg.drawImage(src, 0, 0);
+  for (let i = 0; i < 9000; i++) {
+    bg.fillStyle = `rgba(0,0,0,${0.2 + rand() * 0.4})`;
+    bg.fillRect(rand() * b.width, rand() * b.height, 1, 2 + rand() * 5);
+  }
+  const [r, rg] = makeCanvas(src.width, src.height);
+  rg.fillStyle = 'rgb(0,215,0)';
+  rg.fillRect(0, 0, r.width, r.height);
+  rg.globalCompositeOperation = 'multiply';
+  rg.globalAlpha = 0.35;
+  rg.drawImage(src, 0, 0);
+  let colour = src;
+  if (dusty) {
+    const [d, dg] = makeCanvas(src.width, src.height);
+    dg.drawImage(src, 0, 0);
+    sprinkleDust(dg, d.width, d.height, 7000, { fibres: 6 });
+    colour = d;
+  }
+  const map = toTexture(colour, { repeat: 1 });
+  const bump = toTexture(b, { repeat: 1, color: false });
+  const rough = toTexture(r, { color: false });
+  for (const t of [map, bump, rough]) {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1, aspect);
+  }
   return new THREE.MeshPhysicalMaterial({
-    map, bumpMap: bump, bumpScale: 0.6, roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.4,
+    map, bumpMap: bump, bumpScale: 0.8,
+    roughness: 1, roughnessMap: rough,
+    clearcoat: 0.06, clearcoatRoughness: 0.6,
+    sheen: 0.25, sheenRoughness: 0.8, sheenColor: new THREE.Color(0x6a2a14),
   });
 }
 const blackPlastic = new THREE.MeshPhysicalMaterial({
@@ -295,11 +486,16 @@ const blackPlastic = new THREE.MeshPhysicalMaterial({
   bumpMap: toTexture(noiseCanvas(256, '#808080', 9000, 0.5), { repeat: 6, color: false }), bumpScale: 0.15,
 });
 // Brushing runs front to back along the walls (and side to side on the back wall).
-const brushed = toTexture(brushedCanvas(512, 1024, '#bdb6aa'), { repeat: 0.35 });
-brushed.rotation = Math.PI / 2;
+// Satin brushed aluminum: bright, with highlights stretched along the brushing
+// (anisotropy follows the UV u axis, which runs front to back on the walls).
+const brushedSrc = brushedCanvas(512, 1024, '#d4cfc6');
+sprinkleDust(brushedSrc.getContext('2d'), 512, 1024, 2600, { color: '238,234,226', fibres: 3 });
+const brushed = toTexture(brushedSrc, { repeat: 0.35 });
+const brushedBump = toTexture(brushedSrc, { repeat: 0.35, color: false });
+for (const t of [brushed, brushedBump]) t.rotation = Math.PI / 2;
 const aluminum = new THREE.MeshPhysicalMaterial({
-  map: brushed, metalness: 1, roughness: 0.36,
-  anisotropy: 0.8, anisotropyRotation: Math.PI / 2,
+  map: brushed, bumpMap: brushedBump, bumpScale: 0.15, metalness: 1, roughness: 0.3,
+  anisotropy: 0.9, anisotropyRotation: 0, envMapIntensity: 1.8,
 });
 const rubber = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.95 });
 
@@ -340,7 +536,7 @@ scene.add(cabinet);
 // material groups, so the grain runs vertically on every side.
 const body = new THREE.Mesh(
   new RoundedBoxGeometry(W, HW, D, 4, 0.035),
-  [vinyl(), vinyl(), vinyl(), blackPlastic, vinyl(), vinyl()]
+  [vinyl({ aspect: HW / D }), vinyl({ aspect: HW / D }), vinyl({ dusty: true }), blackPlastic, vinyl({ aspect: HW / W }), vinyl({ aspect: HW / W })]
 );
 body.position.y = FOOT + HW / 2;
 body.castShadow = body.receiveShadow = true;
@@ -399,23 +595,62 @@ const plate = new THREE.Group();
 top.add(plate);
 const fp = faceplateMaps();
 
-const backplane = new THREE.Mesh(
+const pcb = pcbMaps();
+const board = new THREE.Mesh(
   new THREE.PlaneGeometry(PW, PL),
-  new THREE.MeshStandardMaterial({ color: 0x0d0c0c, roughness: 0.85,
-    bumpMap: toTexture(noiseCanvas(256, '#808080', 9000, 0.6), { repeat: 5, color: false }), bumpScale: 0.2 })
+  new THREE.MeshStandardMaterial({
+    map: pcb.map, roughness: 1, metalness: 1, roughnessMap: pcb.orm, metalnessMap: pcb.orm,
+    bumpMap: toTexture(noiseCanvas(256, '#808080', 12000, 0.5), { repeat: 6, color: false }), bumpScale: 0.25,
+  })
 );
-backplane.rotation.x = -Math.PI / 2;
-backplane.position.y = 0.001;
-backplane.receiveShadow = true;
-plate.add(backplane);
+board.rotation.x = -Math.PI / 2;
+board.position.y = 0.001;
+board.receiveShadow = true;
+plate.add(board);
+
+// A resistor beside each LED, standing on short legs.
+const resGeo = new THREE.CapsuleGeometry(0.028, 0.09, 6, 16);
+const resMat = new THREE.MeshPhysicalMaterial({ map: resistorTexture(), roughness: 0.45, clearcoat: 0.6 });
+const legMat = new THREE.MeshStandardMaterial({ color: 0xc9c6c0, metalness: 1, roughness: 0.3 });
+const legGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.05, 6);
+for (const w of WINDOWS) {
+  const x = COL_X[w.col] + RES_DX, z = ROW_Z[w.row] + LED_DZ;
+  const body = new THREE.Mesh(resGeo, resMat);
+  body.rotation.z = Math.PI / 2;
+  body.position.set(x, 0.05, z);
+  body.castShadow = body.receiveShadow = true;
+  plate.add(body);
+  for (const s of [-1, 1]) {
+    const leg = new THREE.Mesh(legGeo, legMat);
+    leg.position.set(x + s * 0.08, 0.025, z);
+    plate.add(leg);
+    const lead = new THREE.Mesh(legGeo, legMat);
+    lead.rotation.z = Math.PI / 2;
+    lead.scale.y = 0.6;
+    lead.position.set(x + s * 0.065, 0.05, z);
+    plate.add(lead);
+  }
+}
+
+// The painted back of the glass. Opaque cut-out, so it also shadows the board:
+// room light only reaches the PCB through the windows.
+const paint = new THREE.Mesh(
+  new THREE.PlaneGeometry(PW, PL),
+  new THREE.MeshStandardMaterial({ color: 0x050505, map: paintMask(), alphaTest: 0.5, roughness: 0.35, side: THREE.DoubleSide })
+);
+paint.rotation.x = -Math.PI / 2;
+paint.position.y = GAP - 0.002;
+paint.castShadow = true;
+paint.userData.bloomHide = true;
+plate.add(paint);
 
 // Smoked acrylic: real transmission so the LEDs and backplane are seen through
 // (and refracted by) it. depthWrite off so the ink and LED glow layer over it.
 const glassMat = new THREE.MeshPhysicalMaterial({
-  color: 0x5c5c5c, metalness: 0, roughness: 1, roughnessMap: fp.roughness,
+  color: 0x9a9592, metalness: 0, roughness: 1, roughnessMap: fp.roughness,
   transmission: 1, thickness: GLASS_T, ior: 1.49,
-  attenuationColor: new THREE.Color(0x302a28), attenuationDistance: 0.08,
-  specularIntensity: 1, envMapIntensity: 0.55, depthWrite: false,
+  attenuationColor: new THREE.Color(0x3a3230), attenuationDistance: 0.18,
+  specularIntensity: 1, envMapIntensity: 1, depthWrite: false,
 });
 const glass = new THREE.Mesh(new THREE.BoxGeometry(PW, GLASS_T, PL), glassMat);
 glass.position.y = GAP + GLASS_T / 2;
@@ -455,8 +690,8 @@ const glowTex = glowTexture();
 const leds = WINDOWS.map((w) => {
   const x = COL_X[w.col], z = ROW_Z[w.row] + LED_DZ;
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0x2a0402, emissive: LED_COLOR, emissiveIntensity: 0, emissiveMap: ledHot,
-    roughness: 0.5, clearcoat: 0.6, clearcoatRoughness: 0.1,
+    color: 0x3a0604, emissive: LED_COLOR, emissiveIntensity: 0, emissiveMap: ledHot,
+    roughness: 0.38, clearcoat: 1, clearcoatRoughness: 0.03, sheen: 0.15, sheenColor: 0xff5030,
   });
   const dome = new THREE.Mesh(ledGeo, mat);
   dome.position.set(x, 0, z);
@@ -473,7 +708,9 @@ const leds = WINDOWS.map((w) => {
   plate.add(glow);
   return { text: w.text, mat, glowMat, pos: new THREE.Vector3(x, 0.1, z), level: 0, target: 0 };
 });
-const ledLight = new THREE.PointLight(0xff2a10, 0, 1.4, 2);
+// Short range: it only reaches the board, resistor and paint inside its own window
+// (point lights cast no shadows here, so a longer reach would leak onto the walls).
+const ledLight = new THREE.PointLight(0xff2a10, 0, 0.6, 2);
 plate.add(ledLight);
 
 // ASK pushbutton, standing proud of the glass; its stem drops through to the backplane.
@@ -487,7 +724,16 @@ const askCap = new THREE.Mesh(
     new THREE.Vector2(0.138, 0.17), new THREE.Vector2(0.125, 0.184), new THREE.Vector2(0.1, 0.194),
     new THREE.Vector2(0.06, 0.199), new THREE.Vector2(0, 0.2),
   ], 48),
-  new THREE.MeshPhysicalMaterial({ color: 0x151515, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.12 })
+  new THREE.MeshPhysicalMaterial({
+    map: (() => {
+      const [c, g] = makeCanvas(256, 256);
+      g.fillStyle = '#151515';
+      g.fillRect(0, 0, 256, 256);
+      sprinkleDust(g, 256, 256, 500);
+      return toTexture(c);
+    })(),
+    roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.12,
+  })
 );
 askCap.position.set(ASK.x, GLASS_TOP, ASK.z);
 askCap.castShadow = true;
@@ -855,12 +1101,17 @@ function frame() {
   let brightest = leds[0];
   for (const l of leds) {
     l.level += (l.target - l.level) * ease(l.target > l.level ? 60 : 22);
-    l.mat.emissiveIntensity = l.level * 9;
     l.glowMat.opacity = l.level * 0.3;
     if (l.level > brightest.level) brightest = l;
   }
+  // Unlit domes pick up a faint red from whichever LED is lit nearby.
+  for (const l of leds) {
+    let spill = 0;
+    for (const o of leds) if (o !== l) spill += o.level / (1 + 8 * o.pos.distanceToSquared(l.pos));
+    l.mat.emissiveIntensity = l.level * 9 + spill * 0.35;
+  }
   ledLight.position.copy(brightest.pos);
-  ledLight.intensity = brightest.level * 1.1;
+  ledLight.intensity = brightest.level * 1.2;
 
   // A quick tap still shows the button travel all the way down.
   const pressed = holding || performance.now() - pressedAt < 170;
