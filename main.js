@@ -81,6 +81,10 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = CFG.exposure;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.VSMShadowMap;
+// Shadows are redrawn only when a caster moves (the ASK button, the switch knob);
+// the frame loop sets needsUpdate. Redrawing the VSM every frame was a big cost.
+renderer.shadowMap.autoUpdate = false;
+renderer.shadowMap.needsUpdate = true;
 
 // If the GPU drops the context (memory pressure, driver reset), say so and
 // reload once at a lower texture budget rather than leaving a dead canvas.
@@ -1102,7 +1106,9 @@ function renderBloom() {
   const bg = scene.background, fog = scene.fog;
   scene.background = null;
   scene.fog = null;
-  renderer.shadowMap.autoUpdate = false;
+  // Leave any pending shadow redraw for the main render: here the materials are swapped out.
+  const shadowsPending = renderer.shadowMap.needsUpdate;
+  renderer.shadowMap.needsUpdate = false;
   scene.traverse((o) => {
     if (o.isLine) {                         // cobweb threads and the like: not glowing
       stashed.set(o, [o.material, o.visible]);
@@ -1123,7 +1129,7 @@ function renderBloom() {
   stashed.clear();
   scene.background = bg;
   scene.fog = fog;
-  renderer.shadowMap.autoUpdate = true;
+  renderer.shadowMap.needsUpdate = shadowsPending;
 }
 
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * DPR, innerHeight * DPR, {
@@ -1131,8 +1137,10 @@ const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerW
 }));
 composer.addPass(new RenderPass(scene, camera));
 const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
-gtao.updateGtaoMaterial({ radius: 0.5, distanceExponent: 1.5, thickness: 1, scale: 1.1, samples: LITE ? 8 : 16 });
-gtao.updatePdMaterial({ radius: 6, rings: 2, samples: LITE ? 8 : 16 });
+// Fewer AO samples where there are a lot of pixels to shade (phones, big monitors).
+const AO_SAMPLES = LITE || innerWidth * innerHeight * DPR * DPR > 3.5e6 ? 8 : 16;
+gtao.updateGtaoMaterial({ radius: 0.5, distanceExponent: 1.5, thickness: 1, scale: 1.1, samples: AO_SAMPLES });
+gtao.updatePdMaterial({ radius: 6, rings: 2, samples: AO_SAMPLES });
 gtao.blendIntensity = 0.9;
 composer.addPass(gtao);
 composer.addPass(new ShaderPass(new THREE.ShaderMaterial({
@@ -1602,6 +1610,31 @@ document.addEventListener('gesturechange', (e) => {
 });
 document.addEventListener('gestureend', (e) => e.preventDefault());
 
+// ---------- adaptive resolution ----------
+// If the frame rate sags (big monitors, slower GPUs), render a little smaller
+// and let the browser scale it up; creep back up when there's headroom. The
+// glow pass always runs at half resolution, since it's blurred anyway.
+let renderScale = 1;
+let scaleFrames = 0, scaleTime = 0;
+function applyRenderScale() {
+  const pr = DPR * renderScale;
+  renderer.setPixelRatio(pr);
+  composer.setPixelRatio(pr);
+  bloomComposer.setPixelRatio(pr * 0.5);
+}
+function adaptResolution(dt) {
+  scaleFrames++;
+  scaleTime += dt;
+  if (scaleTime < 1.5) return;
+  const fps = scaleFrames / scaleTime;
+  scaleFrames = scaleTime = 0;
+  const next = fps < 48 ? Math.max(0.6, renderScale - 0.1) : fps > 57 ? Math.min(1, renderScale + 0.05) : renderScale;
+  if (next !== renderScale) {
+    renderScale = next;
+    applyRenderScale();
+  }
+}
+
 // ---------- layout ----------
 let fitDistance = 10;
 function layout() {
@@ -1619,6 +1652,7 @@ function layout() {
   renderer.setSize(innerWidth, innerHeight);
   composer.setSize(innerWidth, innerHeight);
   bloomComposer.setSize(innerWidth, innerHeight);
+  applyRenderScale();
 }
 layout();
 camera.position.copy(TARGET).addScaledVector(VIEW_DIR, fitDistance * (reduceMotion ? 1 : 1.5));
@@ -1662,10 +1696,16 @@ function frame() {
 
   // A quick tap still shows the button travel all the way down.
   const pressed = holding || performance.now() - pressedAt < 170;
-  askCap.position.y += ((pressed ? ASK_DOWN : ASK_UP) - askCap.position.y) * ease(pressed ? 60 : 28);
+  const capY = pressed ? ASK_DOWN : ASK_UP;
   const nubX = SWITCH.x + (powered ? -SWITCH.travel : SWITCH.travel);
+  const nubY = switchHeld ? NUB_DOWN : NUB_UP;
+  if (Math.abs(capY - askCap.position.y) + Math.abs(nubX - nub.position.x) + Math.abs(nubY - nub.position.y) > 1e-4) {
+    renderer.shadowMap.needsUpdate = true;
+  }
+  askCap.position.y += (capY - askCap.position.y) * ease(pressed ? 60 : 28);
   nub.position.x += (nubX - nub.position.x) * ease(30);
-  nub.position.y += ((switchHeld ? NUB_DOWN : NUB_UP) - nub.position.y) * ease(40);
+  nub.position.y += (nubY - nub.position.y) * ease(40);
+  adaptResolution(dt);
 
   film.uniforms.time.value += dt;
   themeUpdate?.(performance.now() / 1000);
@@ -1682,6 +1722,7 @@ loader.set(1, 'Ready');
 // For automated checks.
 window.__edm = {
   askDown, askUp, setPower, ready: false, audioLog,
+  get renderScale() { return renderScale; },
   get audioState() { return ac ? ac.state : 'none'; },
   readPeak() { const p = audioPeak; audioPeak = 0; return p; },
   // Diagnostics: a one-second tone straight to the speakers, or through the master bus.

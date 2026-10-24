@@ -370,23 +370,26 @@ function halloween({ scene, camera, viewPoint, makeCanvas, toTexture, BLOOM_LAYE
 
   // --- bare trees, silhouettes in the distance ---
   const barkMat = new THREE.MeshStandardMaterial({ color: 0x17111b, roughness: 1 });
-  function branch(group, from, dir, len, radius, depth) {
+  // Branch segments are collected and merged, so each tree is one draw call
+  // rather than hundreds (each tree was ~350 meshes, drawn three times a frame).
+  function branch(parts, from, dir, len, radius, depth) {
     const to = from.clone().addScaledVector(dir, len);
-    const seg = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.7, radius, len, 6), barkMat);
-    seg.position.lerpVectors(from, to, 0.5);
-    seg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-    group.add(seg);
+    const seg = new THREE.CylinderGeometry(radius * 0.7, radius, len, 6);
+    seg.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
+    const mid = from.clone().lerp(to, 0.5);
+    seg.translate(mid.x, mid.y, mid.z);
+    parts.push(seg);
     if (depth === 0) return;
     const n = 2 + (rand() < 0.4 ? 1 : 0);
     for (let i = 0; i < n; i++) {
       const d = dir.clone().add(new THREE.Vector3((rand() - 0.5) * 1.4, 0.15 + rand() * 0.4, (rand() - 0.5) * 1.4)).normalize();
-      branch(group, to, d, len * (0.6 + rand() * 0.15), radius * 0.62, depth - 1);
+      branch(parts, to, d, len * (0.6 + rand() * 0.15), radius * 0.62, depth - 1);
     }
   }
   for (const [x, z, h] of [[-9, -15, 3.2], [9.5, -17, 3.8]]) {
-    const tree = new THREE.Group();
-    branch(tree, new THREE.Vector3(x, 0, z), new THREE.Vector3((rand() - 0.5) * 0.2, 1, 0).normalize(), h, 0.32, 5);
-    scene.add(tree);
+    const parts = [];
+    branch(parts, new THREE.Vector3(x, 0, z), new THREE.Vector3((rand() - 0.5) * 0.2, 1, 0).normalize(), h, 0.32, 5);
+    scene.add(new THREE.Mesh(mergeGeometries(parts), barkMat));
   }
 
   // --- cobwebs: a gauzy sheet slung in the corner where the wood box meets the
