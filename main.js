@@ -59,6 +59,8 @@ const canvas = document.getElementById('c');
 const readout = document.getElementById('readout');
 const hint = document.getElementById('hint');
 const muteBtn = document.getElementById('mute');
+// Touch screens have no Space bar to mention.
+if (LITE) hint.textContent = 'Tap ASK · drag to look around';
 const HINT_READY = hint.textContent;
 
 let renderer;
@@ -1622,7 +1624,9 @@ function applyRenderScale() {
   composer.setPixelRatio(pr);
   bloomComposer.setPixelRatio(pr * 0.5);
 }
+let adaptFrom = Infinity;                 // set once the intro has played
 function adaptResolution(dt) {
+  if (performance.now() < adaptFrom) return;
   scaleFrames++;
   scaleTime += dt;
   if (scaleTime < 1.5) return;
@@ -1715,12 +1719,36 @@ function frame() {
 }
 await stage(0.88, 'Warming up the LEDs');
 if (renderer.compileAsync) await renderer.compileAsync(scene, camera).catch(() => {});
+// Upload every texture now (the 4K ones take a moment), then run the real
+// render loop behind the loading screen until frames come steadily, so shader
+// variants for every pass are compiled before anyone sees the first frame.
+scene.traverse((o) => {
+  for (const m of [].concat(o.material || [])) {
+    for (const v of Object.values(m)) if (v?.isTexture) renderer.initTexture(v);
+  }
+});
 requestAnimationFrame(frame);
-await nextFrame();
+{
+  const until = performance.now() + 4000;
+  let steady = 0, last = performance.now();
+  while (steady < 8 && performance.now() < until) {
+    await nextFrame();
+    const now = performance.now();
+    steady = now - last < 40 ? steady + 1 : 0;
+    last = now;
+  }
+}
 loader.set(1, 'Ready');
 
-// For automated checks.
-window.__edm = {
+// Test and diagnostic hooks, only with ?debug in the URL (the test suite uses them).
+const DEBUG = new URLSearchParams(location.search).has('debug');
+const debugHooks = {
+  // Draw n answers with the same unbiased sampler the device uses; returns counts per answer.
+  rngSample(n) {
+    const counts = new Array(CHASE.length).fill(0);
+    for (let i = 0; i < n; i++) counts[randInt(CHASE.length)]++;
+    return counts;
+  },
   askDown, askUp, setPower, ready: false, audioLog,
   get renderScale() { return renderScale; },
   get audioState() { return ac ? ac.state : 'none'; },
@@ -1746,6 +1774,7 @@ window.__edm = {
     controls.update();
   },
 };
+if (DEBUG) window.__edm = debugHooks;
 
 // ---------- quiet UI ----------
 // The text overlays fade out when nobody is interacting, leaving just the device;
@@ -1756,10 +1785,11 @@ function wake(ms = 3500) {
   clearTimeout(quietTimer);
   quietTimer = setTimeout(() => document.body.classList.add('quiet'), ms);
 }
-for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown', 'touchstart']) addEventListener(ev, () => wake(), { passive: true });
+for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown', 'touchstart', 'focusin']) addEventListener(ev, () => wake(), { passive: true });
 wake(5000);
 
 // Once the loading screen has wiped away, play the camera's intro move.
 await loader.done();
 intro = reduceMotion ? 1 : 0;
-window.__edm.ready = true;
+adaptFrom = performance.now() + 2500;        // judge the frame rate after the intro, not during it
+debugHooks.ready = true;

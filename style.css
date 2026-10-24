@@ -1,0 +1,96 @@
+:root {
+  --bg: #1b1917;
+  --ink: #e9e2d6;
+  --muted: #9b9083;
+  --lamp: #ff3b1f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+body { font: 14px/1.4 "Helvetica Neue", Arial, sans-serif; }
+canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+header { position: fixed; top: 16px; left: 16px; right: 120px; pointer-events: none; }
+h1 { margin: 0; font: 500 16px/1.2 "Helvetica Neue", Arial, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+#readout {
+  position: fixed; left: 0; right: 0; bottom: 44px; text-align: center; pointer-events: none;
+  font: 700 clamp(22px, 5vw, 42px)/1.1 "Helvetica Neue", Arial, sans-serif; letter-spacing: .12em;
+  color: var(--lamp); text-shadow: 0 0 12px rgba(255, 59, 31, .7), 0 0 32px rgba(255, 59, 31, .35);
+  opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s;
+}
+#readout.show { opacity: 1; transform: none; }
+#hint { position: fixed; left: 0; right: 0; bottom: 16px; text-align: center; color: var(--muted); font-size: 12px; pointer-events: none; padding: 0 16px; }
+#mute {
+  position: fixed; top: 14px; right: 16px; background: rgba(255,255,255,.06); color: var(--ink);
+  border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 12px; cursor: pointer;
+}
+#mute:hover { background: rgba(255,255,255,.12); }
+#decide { position: fixed; left: -9999px; }
+#decide:focus { left: 16px; top: 64px; padding: 6px 10px; }
+footer { position: fixed; right: 16px; bottom: 16px; color: #8d8277; font-size: 11px; text-align: right; pointer-events: none; }
+@media (max-width: 640px) {
+  footer { display: none; }
+  h1 { font-size: 13px; }
+  #readout { bottom: 52px; }
+}
+#wipe { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
+#wipe .band {
+  position: absolute; top: 50%; left: -25vw; width: 150vw; height: clamp(150px, 34vh, 320px);
+  transform: translate(-110%, -50%) skewX(-16deg);
+  display: grid; place-items: center;
+  background: linear-gradient(to bottom,
+    #ffb81c 0 6%, #ff7a12 6% 11%, #e8331b 11% 16%, #1b0e08 16% 84%,
+    #e8331b 84% 89%, #ff7a12 89% 94%, #ffb81c 94% 100%);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+}
+#wipe .word {
+  transform: skewX(16deg); opacity: 0; white-space: nowrap;
+  font: italic 900 clamp(40px, 11vw, 180px)/1 "Arial Black", "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: .02em; color: #fff4dc;
+  text-shadow: 3px 3px 0 #e8331b, 6px 6px 0 #ff7a12, 9px 9px 0 #ffb81c, 0 0 40px rgba(255, 180, 80, .45);
+}
+/* Quiet mode: with nobody interacting, the overlays fade and leave the device. */
+header, #hint, footer, #mute { transition: opacity .9s; }
+body.quiet header, body.quiet #hint, body.quiet footer, body.quiet #mute, body.quiet #readout.show { opacity: 0; }
+
+/* Retro pixel loading screen */
+#loader {
+  position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; overflow: hidden;
+  background: #1b0e08; color: #fff4dc; font-family: "Press Start 2P", ui-monospace, monospace;
+  transition: transform .85s cubic-bezier(.65, 0, .35, 1);
+}
+#loader.out { transform: translateX(118%) skewX(-16deg); }
+#loader .stripes {
+  position: absolute; left: 0; right: 0; height: 36px;
+  background: linear-gradient(#ffb81c 0 33.3%, #ff7a12 33.3% 66.6%, #e8331b 66.6%);
+}
+#loader .stripes.top { top: 7%; }
+#loader .stripes.bottom { bottom: 7%; transform: scaleY(-1); }
+#loader .inner { display: grid; justify-items: center; gap: 22px; padding: 0 16px; text-align: center; }
+#pix { width: min(64vw, 384px); image-rendering: pixelated; image-rendering: crisp-edges; }
+#loader h2 {
+  margin: 0; font-weight: 400; font-size: clamp(16px, 4.2vw, 32px); line-height: 1.5;
+  text-shadow: 3px 3px 0 #e8331b, 6px 6px 0 #ff7a12;
+}
+#loader h2 span { display: block; font-size: .5em; letter-spacing: .08em; }
+#loader .bar { display: grid; grid-template-columns: repeat(20, 1fr); gap: 4px; width: min(76vw, 420px); height: 16px; }
+#loader .bar i { background: #3a2418; }
+#loader .msg { margin: 0; font-size: 10px; line-height: 1.6; color: #d6c7ae; text-transform: uppercase; }
+#loader .msg::after { content: '_'; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  #loader { transition: opacity .4s; }
+  #loader.out { transform: none; opacity: 0; }
+}
+/* October: orange and purple instead of the 70s gold, orange and red. */
+:root[data-theme="halloween"] { --bg: #120b16; }
+[data-theme="halloween"] #loader { background: #120b16; }
+[data-theme="halloween"] #loader .stripes { background: linear-gradient(#ff8a1c 0 33.3%, #ff5a0a 33.3% 66.6%, #6b2fa0 66.6%); }
+[data-theme="halloween"] #loader h2 { text-shadow: 3px 3px 0 #6b2fa0, 6px 6px 0 #ff5a0a; }
+[data-theme="halloween"] #wipe .band {
+  background: linear-gradient(to bottom,
+    #ff8a1c 0 6%, #ff5a0a 6% 11%, #6b2fa0 11% 16%, #140a18 16% 84%,
+    #6b2fa0 84% 89%, #ff5a0a 89% 94%, #ff8a1c 94% 100%);
+}
+[data-theme="halloween"] #wipe .word { text-shadow: 3px 3px 0 #6b2fa0, 6px 6px 0 #ff5a0a, 9px 9px 0 #ff8a1c, 0 0 40px rgba(255, 140, 40, .5); }
+#fail { display: none; position: fixed; inset: 0; z-index: 11; place-items: center; text-align: center; padding: 16px; color: var(--ink); background: var(--bg); }
+.noscript { position: fixed; inset: 0; z-index: 12; display: grid; place-items: center; margin: 0; padding: 16px; background: var(--bg); text-align: center; }
