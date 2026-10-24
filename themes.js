@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Monthly backdrops. index.html picks the theme (from ?theme= or the month) and
 // sets window.__theme before anything loads, so the loader and overlays match.
@@ -45,6 +46,41 @@ const CONFIGS = {
 
 export function themeConfig() {
   return CONFIGS[THEME] || CONFIGS.studio;
+}
+
+// Low-lying mist, for themes that want it: built into every fogged material's
+// fog step, so it has no planes to slice through objects. Thickest at the
+// floor, thinning within ~0.5 units of height, building with distance and
+// drifting slowly. Must run before any material compiles.
+const MIST_TIME = { value: 0 };
+export function installMist() {
+  if (THEME !== 'halloween') return;
+  THREE.ShaderChunk.fog_pars_vertex += '\n#ifdef USE_FOG\nvarying vec3 vMistWorld;\n#endif\n';
+  THREE.ShaderChunk.fog_vertex += `
+#ifdef USE_FOG
+  vec4 mistLocal = vec4(transformed, 1.0);
+  #ifdef USE_INSTANCING
+    mistLocal = instanceMatrix * mistLocal;
+  #endif
+  vMistWorld = (modelMatrix * mistLocal).xyz;
+#endif
+`;
+  THREE.ShaderChunk.fog_pars_fragment += '\n#ifdef USE_FOG\nvarying vec3 vMistWorld;\nuniform float mistTime;\n#endif\n';
+  THREE.ShaderChunk.fog_fragment = `
+#ifdef USE_FOG
+  #ifdef FOG_EXP2
+    float fogFactor = 1.0 - exp(- fogDensity * fogDensity * vFogDepth * vFogDepth);
+  #else
+    float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
+  #endif
+  vec2 mq = vMistWorld.xz * 0.32 + vec2(mistTime * 0.035, mistTime * 0.02);
+  float drift = 0.6 + 0.4 * sin(mq.x * 2.1 + 1.3 * sin(mq.y * 1.7)) * sin(mq.y * 1.4 + 0.8 * sin(mq.x * 0.9));
+  float mist = exp(-max(vMistWorld.y, 0.0) / 0.5) * smoothstep(3.0, 16.0, vFogDepth) * drift * 0.6;
+  vec3 mistColor = fogColor * 2.4 + vec3(0.015, 0.015, 0.025);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, mistColor, mist);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+#endif
+`;
 }
 
 // Props and animation for themes that have them. Returns a per-frame update, or null.
@@ -221,42 +257,6 @@ function halloween({ scene, camera, viewPoint, makeCanvas, toTexture, BLOOM_LAYE
   moonGlow.userData.bloomHide = true;
   scene.add(moonGlow);
 
-  // --- ground fog: soft drifting layers just above the floor ---
-  const fogTex = (() => {
-    const [c, g] = makeCanvas(512, 512);
-    for (let i = 0; i < 60; i++) {
-      const x = rand() * 512, y = rand() * 512, rr = 40 + rand() * 120;
-      const grd = g.createRadialGradient(x, y, 0, x, y, rr);
-      grd.addColorStop(0, `rgba(255,255,255,${0.05 + rand() * 0.08})`);
-      grd.addColorStop(1, 'rgba(255,255,255,0)');
-      g.fillStyle = grd;
-      g.fillRect(0, 0, 512, 512);
-    }
-    const t = toTexture(c);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    return t;
-  })();
-  const edgeFade = (() => {                         // fades each patch out towards its edges
-    const [c, g] = makeCanvas(256, 256);
-    const grd = g.createRadialGradient(128, 128, 20, 128, 128, 128);
-    grd.addColorStop(0, '#fff');
-    grd.addColorStop(1, '#000');
-    g.fillStyle = grd;
-    g.fillRect(0, 0, 256, 256);
-    return toTexture(c, { color: false });
-  })();
-  const wisps = Array.from({ length: 3 }, (_, i) => {
-    const tex = fogTex.clone();
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), new THREE.MeshBasicMaterial({
-      map: tex, alphaMap: edgeFade, color: 0x8a7aa8, transparent: true, opacity: 0.28, depthWrite: false,
-    }));
-    m.rotation.x = -Math.PI / 2;
-    m.position.set((i - 1) * 3, 0.15 + i * 0.18, -1 - i * 2);
-    m.userData.bloomHide = true;
-    scene.add(m);
-    return { tex, speed: 0.004 + rand() * 0.006, dir: rand() * Math.PI * 2 };
-  });
-
   // --- bats wheeling across the sky ---
   const batTex = (() => {
     const [c, g] = makeCanvas(256, 128);
@@ -389,37 +389,95 @@ function halloween({ scene, camera, viewPoint, makeCanvas, toTexture, BLOOM_LAYE
     scene.add(tree);
   }
 
-  // --- a cobweb strung across the device's back-left corner ---
+  // --- cobwebs: a gauzy sheet slung in the corner where the wood box meets the
+  // floor at the back left, laced with fine silk threads (thin 3D tubes that
+  // sag and catch the light), and a few strands hanging from the housing.
   {
-    const [a, b, c] = anchors.web;                  // three anchor points
-    const hub = new THREE.Vector3().addScaledVector(a, 0.38).addScaledVector(b, 0.34).addScaledVector(c, 0.28);
-    const pts = [];
-    const edge = (p, q, n) => Array.from({ length: n }, (_, i) => new THREE.Vector3().lerpVectors(p, q, i / n));
-    const rim = [...edge(a, b, 5), ...edge(b, c, 5), ...edge(c, a, 5)];
-    for (const p of [[a, b], [b, c], [c, a]]) pts.push(p[0], p[1]);   // frame threads
-    for (const end of rim) pts.push(hub, end);                         // spokes
-    // Capture spiral: uneven ring spacing, a little jitter and sag, and the odd
-    // broken thread, so it reads as spun rather than printed.
-    let f = 0.12;
-    while (f < 0.95) {
-      const jitter = rim.map(() => f + (rand() - 0.5) * 0.04);
-      for (let i = 0; i < rim.length; i++) {
-        if (rand() < 0.12) continue;
-        const p = new THREE.Vector3().lerpVectors(hub, rim[i], jitter[i]);
-        const q = new THREE.Vector3().lerpVectors(hub, rim[(i + 1) % rim.length], jitter[(i + 1) % rim.length]);
-        const mid = new THREE.Vector3().lerpVectors(p, q, 0.5);
-        mid.y -= 0.02 * f * rand();
-        pts.push(p, mid, mid, q);
-      }
-      f += 0.06 + rand() * 0.07;
+    const { boxX, boxZ, boxTop, houseX, houseZ, houseTop } = anchors.web;
+    const r = (a, b) => a + rand() * (b - a);
+    const near = (max) => max * Math.pow(rand(), 1.8);           // clustered towards the corner
+    const onSide = () => new THREE.Vector3(boxX, 0.02 + near(0.6), boxZ + near(0.7));
+    const onBack = () => new THREE.Vector3(boxX + near(0.7), 0.02 + near(0.6), boxZ);
+    const onFloor = () => {
+      const a = r(Math.PI * 1.05, Math.PI * 1.45), d = 0.08 + near(0.6);
+      return new THREE.Vector3(boxX + Math.cos(a) * d, 0.004, boxZ + Math.sin(a) * d);
+    };
+    const groups = [onSide, onBack, onFloor];
+    const threads = [];
+    const strand = (a, b, sag = 0.2) => {
+      const len = a.distanceTo(b);
+      const mid = a.clone().lerp(b, 0.5);
+      mid.y = Math.max(0.003, mid.y - sag * len * r(0.5, 1.2));
+      mid.x -= 0.05 * len;                           // bellies out away from the corner
+      mid.z -= 0.05 * len;
+      threads.push(new THREE.QuadraticBezierCurve3(a, mid, b));
+    };
+    for (let i = 0; i < 110; i++) {
+      const g1 = groups[i % 3], g2 = groups[(i + 1 + (rand() < 0.5 ? 1 : 0)) % 3];
+      strand(g1(), g2());
     }
-    const web = new THREE.LineSegments(
-      new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineBasicMaterial({ color: 0xd8d6e4, transparent: true, opacity: 0.16 })
-    );
+    for (let i = 0; i < 50; i++) {                   // tangle between existing threads
+      const a = threads[Math.floor(rand() * threads.length)].getPoint(r(0.2, 0.8));
+      const b = threads[Math.floor(rand() * threads.length)].getPoint(r(0.2, 0.8));
+      if (a.distanceTo(b) > 0.04 && a.distanceTo(b) < 0.4) strand(a, b, 0.08);
+    }
+    for (let i = 0; i < 5; i++) {                    // long strands down from the housing's top edge
+      strand(new THREE.Vector3(houseX, houseTop - r(0, 0.05), houseZ + r(0, 0.5)), new THREE.Vector3(boxX + r(0, 0.05), boxTop + 0.002, boxZ + r(0, 0.4)), 0.03);
+    }
+    const silk = new THREE.MeshStandardMaterial({ color: 0xe6e4ee, roughness: 0.3, transparent: true, opacity: 0.4, depthWrite: false });
+    const geo = mergeGeometries(threads.map((c, i) => new THREE.TubeGeometry(c, 12, i % 9 ? 0.0012 : 0.0022, 3, false)));
+    const web = new THREE.Mesh(geo, silk);
     web.userData.bloomHide = true;
     scene.add(web);
+
+    // Gauze: a sagging patch across the corner, textured with a tangle of fibres.
+    const gauzeTex = (() => {
+      const [c, g] = makeCanvas(512, 512);
+      g.strokeStyle = '#fff';
+      for (let i = 0; i < 900; i++) {
+        g.globalAlpha = 0.05 + rand() * 0.22;
+        g.lineWidth = 0.5 + rand();
+        const x = rand() * 512, y = rand() * 512, a = rand() * Math.PI, l = 30 + rand() * 160;
+        g.beginPath();
+        g.moveTo(x, y);
+        g.quadraticCurveTo(x + Math.cos(a) * l * 0.5 + (rand() - 0.5) * 30, y + Math.sin(a) * l * 0.5 + (rand() - 0.5) * 30, x + Math.cos(a) * l, y + Math.sin(a) * l);
+        g.stroke();
+      }
+      return toTexture(c, { color: false });
+    })();
+    const q = [                                      // corners of the patch: corner, side, floor, back
+      new THREE.Vector3(boxX, 0.03, boxZ),
+      new THREE.Vector3(boxX, 0.42, boxZ + 0.5),
+      new THREE.Vector3(boxX - 0.42, 0.004, boxZ - 0.42),
+      new THREE.Vector3(boxX + 0.5, 0.42, boxZ),
+    ];
+    const patch = new THREE.PlaneGeometry(1, 1, 14, 14);
+    const pp = patch.attributes.position;
+    for (let i = 0; i < pp.count; i++) {
+      const s = pp.getX(i) + 0.5, u = pp.getY(i) + 0.5;
+      const top = q[1].clone().lerp(q[2], s), bottom = q[0].clone().lerp(q[3], s);
+      const v = bottom.lerp(top, u);
+      v.y = Math.max(0.004, v.y - 0.12 * Math.sin(Math.PI * s) * Math.sin(Math.PI * u));   // sags in the middle
+      pp.setXYZ(i, v.x, v.y, v.z);
+    }
+    patch.computeVertexNormals();
+    const gauze = new THREE.Mesh(patch, new THREE.MeshStandardMaterial({
+      color: 0xdedce8, alphaMap: gauzeTex, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide, roughness: 0.5,
+    }));
+    gauze.userData.bloomHide = true;
+    scene.add(gauze);
   }
+
+  // Every fogged material shares the mist's clock uniform.
+  scene.traverse((o) => {
+    for (const m of [].concat(o.material || [])) {
+      const prev = m.onBeforeCompile;
+      m.onBeforeCompile = (shader, renderer) => {
+        prev?.call(m, shader, renderer);
+        shader.uniforms.mistTime = MIST_TIME;
+      };
+    }
+  });
 
   const camPos = new THREE.Vector3();
   return function update(t) {
@@ -432,10 +490,7 @@ function halloween({ scene, camera, viewPoint, makeCanvas, toTexture, BLOOM_LAYE
       l.bloomMat.color.setRGB(1, 0.55, 0.15).multiplyScalar(1.3 * k);
       l.light.intensity = 6 * l.r * k;
     }
-    for (const w of wisps) {
-      w.tex.offset.x = Math.cos(w.dir) * w.speed * t;
-      w.tex.offset.y = Math.sin(w.dir) * w.speed * t;
-    }
+    MIST_TIME.value = t;
     camera.getWorldPosition(camPos);
     for (const b of bats) {
       const a = t * b.speed + b.phase;

@@ -8,9 +8,10 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { THEME, themeConfig, buildThemeProps } from './themes.js';
+import { THEME, themeConfig, buildThemeProps, installMist } from './themes.js';
 
 const CFG = themeConfig();
+installMist();
 
 // The six windows, laid out as on the original faceplate: two columns, three rows.
 const WINDOWS = [
@@ -1042,11 +1043,10 @@ const themeUpdate = buildThemeProps({
   scene, camera, makeCanvas, toTexture, BLOOM_LAYER,
   viewPoint: TARGET.clone().addScaledVector(VIEW_DIR, 11),
   anchors: {
-    web: [
-      new THREE.Vector3(-(W / 2 - INSET), wallTopY(Z_OUT_BACK) - 0.02, Z_OUT_BACK - WALL_BEV),
-      new THREE.Vector3(-W / 2, BASE_TOP, -D / 2),
-      new THREE.Vector3(-W / 2 - 0.8, 0.01, -D / 2 - 0.5),
-    ],
+    web: {
+      boxX: -W / 2, boxZ: -D / 2, boxTop: BASE_TOP,
+      houseX: -(W / 2 - INSET), houseZ: Z_OUT_BACK - WALL_BEV, houseTop: wallTopY(Z_OUT_BACK),
+    },
   },
 });
 
@@ -1178,9 +1178,12 @@ function audioContext() {
   return ac;
 }
 
+// Sounds only play once a real interaction has created the context (see
+// unlockAudio); until then they're skipped rather than creating it early.
 function audio() {
-  const a = audioContext();
-  return muted ? null : a;
+  if (!ac || muted) return null;
+  if (ac.state !== 'running') ac.resume().catch(() => {});
+  return ac;
 }
 
 // Browsers only let audio start from a user gesture, and Safari is picky about
@@ -1196,7 +1199,9 @@ function unlockAudio(e) {
   s.connect(master);
   s.start(0);
 }
-for (const ev of ['pointerdown', 'mousedown', 'touchend', 'pointerup', 'click', 'keydown']) {
+// Only events Safari counts as a completed user gesture: a context created on
+// pointerdown/mousedown reports 'running' in Safari yet stays silent.
+for (const ev of ['pointerup', 'click', 'touchend', 'keydown']) {
   addEventListener(ev, unlockAudio, { capture: true, passive: true });
 }
 
