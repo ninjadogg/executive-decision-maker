@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Executive Decision Maker</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect x=%274%27 y=%276%27 width=%2724%27 height=%2722%27 rx=%273%27 fill=%27%238a3a17%27/%3E%3Crect x=%276%27 y=%274%27 width=%2720%27 height=%2716%27 rx=%272%27 fill=%27%23111%27/%3E%3Ccircle cx=%2716%27 cy=%2712%27 r=%273%27 fill=%27%23ff2a10%27/%3E%3C/svg%3E">
+  <meta name="description" content="A 3D tribute to the classic Radio Shack Executive Decision Maker. Press ASK and let the machine decide.">
+  <style>
+    :root {
+      --bg: #1b1917;
+      --ink: #e9e2d6;
+      --muted: #9b9083;
+      --lamp: #ff3b1f;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+    body { font: 14px/1.4 "Helvetica Neue", Arial, sans-serif; }
+    canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+    header { position: fixed; top: 16px; left: 16px; right: 120px; pointer-events: none; }
+    h1 { margin: 0; font: 500 16px/1.2 "Helvetica Neue", Arial, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+    header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    #readout {
+      position: fixed; left: 0; right: 0; bottom: 44px; text-align: center; pointer-events: none;
+      font: 700 clamp(22px, 5vw, 42px)/1.1 "Helvetica Neue", Arial, sans-serif; letter-spacing: .12em;
+      color: var(--lamp); text-shadow: 0 0 12px rgba(255, 59, 31, .7), 0 0 32px rgba(255, 59, 31, .35);
+      opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s;
+    }
+    #readout.show { opacity: 1; transform: none; }
+    #hint { position: fixed; left: 0; right: 0; bottom: 16px; text-align: center; color: var(--muted); font-size: 12px; pointer-events: none; padding: 0 16px; }
+    #mute {
+      position: fixed; top: 14px; right: 16px; background: rgba(255,255,255,.06); color: var(--ink);
+      border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 12px; cursor: pointer;
+    }
+    #mute:hover { background: rgba(255,255,255,.12); }
+    #decide { position: fixed; left: -9999px; }
+    #decide:focus { left: 16px; top: 64px; padding: 6px 10px; }
+    footer { position: fixed; right: 16px; bottom: 16px; color: #6b6158; font-size: 11px; pointer-events: none; }
+    @media (max-width: 640px) {
+      footer { display: none; }
+      h1 { font-size: 13px; }
+      #readout { bottom: 52px; }
+    }
+    #fail { display: none; position: fixed; inset: 0; place-items: center; text-align: center; padding: 16px; color: var(--muted); }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="c" aria-label="3D Executive Decision Maker. Press Space or Enter to get a decision."></canvas>
+  <header>
+    <h1>Executive Decision Maker</h1>
+    <p>A tribute to the Radio Shack desk classic</p>
+  </header>
+  <button id="mute" type="button" aria-pressed="false">Sound: on</button>
+  <button id="decide" type="button">Make a decision</button>
+  <div id="readout" aria-live="polite"></div>
+  <div id="hint">Press ASK (or Space) · drag to look around</div>
+  <footer>Fan-made tribute · not affiliated with RadioShack</footer>
+  <div id="fail">This needs WebGL. Try a recent version of Chrome, Safari, Firefox or Edge.</div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
