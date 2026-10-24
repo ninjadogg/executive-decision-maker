@@ -602,7 +602,7 @@ const wood = (() => {
 // Settled dust on up-facing surfaces: a mottled, matte film plus specks, laid
 // down in world space so it ignores UVs. buildUp adds a heavier band on the
 // wood ledge against the aluminum housing, where a duster never quite reaches.
-const DUST_COLOR = new THREE.Color(0.36, 0.34, 0.31);
+const DUST_COLOR = new THREE.Color(0.5, 0.48, 0.45);
 // Housing footprint on the wood top: xmin, xmax, zmin, zmax.
 const HOUSING = new THREE.Vector4(-(W / 2 - INSET), W / 2 - INSET, -(D / 2 - INSET), D / 2 - 0.03);
 function addDust(material, { amount = 0.15, buildUp = 0 } = {}) {
@@ -634,7 +634,7 @@ float dustNoise(vec3 p) {
 // mat. Noise is 3D, so it carries on over bevels and (lightly) down the sides.
 float dustAmount() {
   vec3 n = normalize(vDustN);
-  float up = n.y < -0.2 ? 0.0 : mix(0.15, 1.0, smoothstep(0.0, 0.95, n.y));
+  float up = n.y < -0.2 ? 0.0 : mix(0.06, 1.0, smoothstep(0.0, 0.95, n.y));
   vec3 p = vDustPos;
   float density = uDust * (0.35 + 1.3 * dustNoise(p * 6.0)) * up;
   // Build-up on the wood ledge: a band whose width wanders along the wall.
@@ -645,9 +645,16 @@ float dustAmount() {
   float band = (1.0 - smoothstep(0.0, reach, outside)) * step(-0.01, outside);
   density += uDustEdge * band * (0.25 + 0.9 * dustNoise(p * 31.0)) * up;
   float grain = 0.6 * dustNoise(p * 170.0) + 0.4 * dustNoise(p * 520.0);
-  float particles = smoothstep(1.0 - density, 1.25 - density, grain);
-  float haze = density * 0.22;
-  return clamp(max(particles * 0.55, haze), 0.0, 0.6);
+  // The grain noise sits mostly in 0.2-0.8, so this threshold covers roughly
+  // the density as a share of the surface: light dust is scattered grains, heavy dust a mat.
+  float cover = clamp(density, 0.0, 1.0);
+  float threshold = 0.8 - 0.6 * cover;
+  // Soft-edged grains, antialiased: where a grain is smaller than a pixel the
+  // edge widens and they average into an even film instead of sparkling.
+  float aa = fwidth(grain) * 1.5 + 0.05;
+  float particles = smoothstep(threshold - aa * 0.5, threshold + aa, grain);
+  float haze = cover * 0.4;
+  return clamp(max(particles * 0.42, haze), 0.0, 0.55);
 }`)
       .replace('#include <map_fragment>', '#include <map_fragment>\nfloat dust = dustAmount();\ndiffuseColor.rgb = mix(diffuseColor.rgb, uDustColor, dust);')
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 1.0, dust);')
@@ -689,7 +696,7 @@ const brushedBump = toTexture(brushedSrc, { repeat: 1, color: false });
 const aluminum = addDust(new THREE.MeshPhysicalMaterial({
   map: brushed, bumpMap: brushedBump, bumpScale: 0.15, metalness: 1, roughness: 0.3,
   anisotropy: 0.9, anisotropyRotation: 0, envMapIntensity: 1.8,
-}), { amount: 0.1 });
+}), { amount: 0.22 });
 
 // Box-projected UVs from each vertex's dominant normal: faces looking along z
 // brush along x; side faces and tops brush along z.
@@ -1540,6 +1547,13 @@ addEventListener('keydown', (e) => {
     askDown();
   }
 });
+// Sound check: T plays a low tone straight to the speakers, then a high one
+// through the master bus, to tell a muted output from a broken sound path.
+addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyT' || e.repeat) return;
+  window.__edm?.testTone(false);
+  setTimeout(() => window.__edm?.testTone(true), 1500);
+});
 addEventListener('keyup', (e) => {
   if (e.code === 'Space' || e.code === 'Enter') askUp();
 });
@@ -1652,6 +1666,17 @@ window.__edm = {
   askDown, askUp, setPower, ready: false, audioLog,
   get audioState() { return ac ? ac.state : 'none'; },
   readPeak() { const p = audioPeak; audioPeak = 0; return p; },
+  // Diagnostics: a one-second tone straight to the speakers, or through the master bus.
+  testTone(viaMaster = false) {
+    if (!ac) return 'no audio context yet: click the page first';
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.value = viaMaster ? 880 : 660;
+    g.gain.value = 0.3;
+    o.connect(g).connect(viaMaster ? master : ac.destination);
+    o.start();
+    o.stop(ac.currentTime + 1);
+    return ac.state;
+  },
   get answer() { return !spinning && lit >= 0 ? leds[lit].text : null; },
   printPNG: () => printCanvas().toDataURL(),
   // Point the camera at a spot on the faceplate (plate-local) or in the world.
