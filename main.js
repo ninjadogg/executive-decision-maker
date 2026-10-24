@@ -1567,13 +1567,6 @@ addEventListener('keydown', (e) => {
     askDown();
   }
 });
-// Sound check: T plays a low tone straight to the speakers, then a high one
-// through the master bus, to tell a muted output from a broken sound path.
-addEventListener('keydown', (e) => {
-  if (e.code !== 'KeyT' || e.repeat) return;
-  window.__edm?.testTone(false);
-  setTimeout(() => window.__edm?.testTone(true), 1500);
-});
 addEventListener('keyup', (e) => {
   if (e.code === 'Space' || e.code === 'Enter') askUp();
 });
