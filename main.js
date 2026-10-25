@@ -334,7 +334,8 @@ function roundRect(g, x, y, w, h, r) {
 // Faceplate coordinates (x right, z toward the viewer) to canvas pixels.
 // Texture resolution: the faceplate artwork's long side is 4096 px (2048 on touch devices).
 // ?tex=2048 (or 1024) overrides it, for slower machines.
-const TEX_MAX = Math.min(4096, Math.max(512, Number(new URLSearchParams(location.search).get('tex')) || (LITE ? 2048 : 4096)));
+// Phones get 1536: iOS kills tabs that use too much memory, intermittently.
+const TEX_MAX = Math.min(4096, Math.max(512, Number(new URLSearchParams(location.search).get('tex')) || (LITE ? 1536 : 4096)));
 const PX = Math.floor(TEX_MAX / Math.max(PW, PL));   // faceplate texture pixels per unit
 const DUST_SCALE = PX / 300;                          // dust sizes were tuned at 300 px/unit
 const CW = Math.round(PW * PX), CH = Math.round(PL * PX);
@@ -1141,15 +1142,19 @@ const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerW
 }));
 // The scene renders into readBuffer (renderTarget2); only it needs MSAA, and
 // high-DPI screens are already supersampled. Saves ~450 MB on a retina laptop.
-composer.renderTarget2.samples = DPR >= 2 ? 0 : 4;
+composer.renderTarget2.samples = DPR >= 2 || LITE ? 0 : 4;
 composer.addPass(new RenderPass(scene, camera));
-const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
-// Fewer AO samples where there are a lot of pixels to shade (phones, big monitors).
-const AO_SAMPLES = LITE || innerWidth * innerHeight * DPR * DPR > 3.5e6 ? 8 : 16;
-gtao.updateGtaoMaterial({ radius: 0.5, distanceExponent: 1.5, thickness: 1, scale: 1.1, samples: AO_SAMPLES });
-gtao.updatePdMaterial({ radius: 6, rings: 2, samples: AO_SAMPLES });
-gtao.blendIntensity = 0.9;
-composer.addPass(gtao);
+// Contact shading costs several full-screen buffers (allocated on creation),
+// so phones don't create it at all.
+if (!LITE) {
+  const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
+  // Fewer AO samples where there are a lot of pixels to shade (big monitors).
+  const samples = innerWidth * innerHeight * DPR * DPR > 3.5e6 ? 8 : 16;
+  gtao.updateGtaoMaterial({ radius: 0.5, distanceExponent: 1.5, thickness: 1, scale: 1.1, samples });
+  gtao.updatePdMaterial({ radius: 6, rings: 2, samples });
+  gtao.blendIntensity = 0.9;
+  composer.addPass(gtao);
+}
 composer.addPass(new ShaderPass(new THREE.ShaderMaterial({
   uniforms: { baseTexture: { value: null }, bloomTexture: { value: bloomComposer.renderTarget2.texture } },
   vertexShader: /* glsl */ `
@@ -1254,9 +1259,9 @@ function unlockAudio(e) {
   s.connect(master);
   s.start(0);
 }
-// Only events Safari counts as a completed user gesture: a context created on
-// pointerdown/mousedown reports 'running' in Safari yet stays silent.
-for (const ev of ['pointerup', 'click', 'touchend', 'keydown']) {
+// Only a full click, a key press or a touch end count: a context Safari sees
+// created on pointerdown or pointerup reports 'running' but stays silent.
+for (const ev of ['click', 'touchend', 'keydown']) {
   addEventListener(ev, unlockAudio, { capture: true, passive: true });
 }
 
