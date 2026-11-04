@@ -6,7 +6,9 @@
   const bar = el.querySelector('.bar');
   const msg = el.querySelector('.msg');
   const blocks = [];
-  const BLOCK = ['#ffb81c', '#ff9a16', '#ff7a12', '#f25a16', '#e8331b'];
+  const BLOCK = window.__theme === 'thanksgiving'
+    ? ['#f2c14e', '#e8a02a', '#d9741c', '#b8501a', '#8e1f24']
+    : ['#ffb81c', '#ff9a16', '#ff7a12', '#f25a16', '#e8331b'];
   for (let i = 0; i < 20; i++) blocks.push(bar.appendChild(document.createElement('i')));
   const start = performance.now();
   let progress = 0, shown = 0, running = true;
@@ -17,10 +19,24 @@
   const streaks = Array.from({ length: 22 }, () => [12 + Math.floor(rnd() * 72), rnd() < 0.7 ? '#4a1a08' : '#a04c22', Math.floor(rnd() * 6)]);
   const CHASE = [0, 1, 3, 5, 4, 2];
   const px = (c, x, y, w = 1, h = 1) => { g.fillStyle = c; g.fillRect(x, y, w, h); };
+  // November: leaves drifting down past the device (half behind it, half in front).
+  const LEAF = ['#e8a417', '#d9621c', '#b8301a', '#8e1f24', '#c8861a'];
+  const leaves = window.__theme === 'thanksgiving'
+    ? Array.from({ length: 14 }, (_, i) => ({
+      x: rnd() * 96, y: rnd() * 74, v: 7 + rnd() * 8, amp: 2 + rnd() * 4, f: 1 + rnd() * 1.5, ph: rnd() * 6.3, c: LEAF[i % LEAF.length], front: i % 2,
+    }))
+    : [];
+  function leaf(l, t) {
+    const s = t / 1000;
+    const x = Math.round(l.x + l.amp * Math.sin(s * l.f + l.ph)), y = Math.round(((l.y + s * l.v) % 74) - 5);
+    if ((Math.floor(s * 4 + l.ph) & 1) === 0) { px(l.c, x, y + 1, 3); px(l.c, x + 1, y); px('#5a2a10', x + 1, y + 2); }
+    else { px(l.c, x, y, 2, 2); px(l.c, x + 2, y + 2); }
+  }
   const outline = (c, x, y, w, h) => { px(c, x + 1, y, w - 2); px(c, x + 1, y + h - 1, w - 2); px(c, x, y + 1, 1, h - 2); px(c, x + w - 1, y + 1, 1, h - 2); };
 
   function draw(t) {
     g.clearRect(0, 0, 96, 64);
+    for (const l of leaves) if (!l.front) leaf(l, t);
     px('#0f0703', 14, 58, 72, 3);                    // shadow
     px('#7a3518', 12, 36, 72, 22);                   // rosewood box
     for (const [x, c, gap] of streaks) { px(c, x, 36, 1, 22); px('#7a3518', x, 40 + gap * 3, 1, 2); }
@@ -49,6 +65,31 @@
       px('#4d5a24', 90, 47, 2, 3);
       px(glow, 87, 52, 2, 1); px(glow, 92, 52, 2, 1); px(glow, 88, 55, 5, 1); px(glow, 89, 54, 1, 1); px(glow, 91, 54, 1, 1);
     }
+    if (window.__theme === 'thanksgiving') {
+      // A pumpkin and a gourd on the left.
+      px('#d9741c', 2, 52, 8, 6); px('#d9741c', 3, 51, 6, 1); px('#d9741c', 3, 58, 6, 1);
+      px('#a8501a', 4, 52, 1, 6); px('#a8501a', 7, 52, 1, 6); px('#f0a040', 3, 53, 1, 2);
+      px('#5a5a24', 5, 49, 2, 2); px('#4d7a2a', 7, 49, 2, 1);
+      px('#e2b22a', 9, 55, 2, 4); px('#e2b22a', 10, 53, 1, 2); px('#7a8a2a', 9, 57, 2, 1);
+      // A turkey facing the device: the tail fans out now and then, the head bobs.
+      const puff = ((t / 1000) % 3.2) < 0.7 ? 1.12 : 1;
+      const bob = Math.floor(t / 450) % 4 === 1 ? 1 : 0;
+      for (let y = 43; y <= 52; y++) {
+        for (let x = 84; x <= 95; x++) {
+          const d = Math.hypot(x - 90.5, (y - 51.5) * 1.05) / puff;
+          if (d > 6.6 || d < 2.6) continue;
+          const tip = d > 5.5 && Math.floor(Math.atan2(y - 51.5, x - 90.5) * 4) % 2 === 0;
+          px(tip ? '#e8d6b0' : d > 5.5 ? '#7a2a12' : d > 4.3 ? '#c8561a' : '#e8a417', x, y);
+        }
+      }
+      px('#6b3a1c', 88, 50, 4, 1); px('#6b3a1c', 87, 51, 6, 4); px('#6b3a1c', 88, 55, 4, 1);
+      px('#8a4e26', 87, 51, 2, 3); px('#4a2410', 90, 52, 2, 2);                   // breast and wing
+      px('#d99a3a', 88, 56, 1, 2); px('#d99a3a', 90, 56, 1, 2); px('#d99a3a', 87, 58, 2, 1); px('#d99a3a', 90, 58, 2, 1);
+      px('#8fa6bc', 86, 48 + bob, 1, 3);                                          // neck
+      px('#8fa6bc', 85, 47 + bob, 2, 2); px('#000', 85, 47 + bob);                // head and eye
+      px('#f0b03a', 84, 48 + bob); px('#d0281a', 85, 49 + bob, 1, 2);             // beak and wattle
+    }
+    for (const l of leaves) if (l.front) leaf(l, t);
   }
 
   function loop(t) {

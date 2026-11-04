@@ -1076,9 +1076,10 @@ scene.updateMatrixWorld(true);
 const TARGET = plate.localToWorld(new THREE.Vector3(0, -0.5, 0.15));
 
 // ---------- monthly theme props ----------
-if (THEME === 'halloween') await stage(0.74, 'Carving the pumpkins');
+const THEME_STAGE = { halloween: 'Carving the pumpkins', thanksgiving: 'Setting the table' };
+if (Object.hasOwn(THEME_STAGE, THEME)) await stage(0.74, THEME_STAGE[THEME]);
 const themeUpdate = buildThemeProps({
-  scene, camera, makeCanvas, toTexture, BLOOM_LAYER,
+  scene, camera, makeCanvas, toTexture, BLOOM_LAYER, floor,
   viewPoint: TARGET.clone().addScaledVector(VIEW_DIR, 11),
   anchors: {
     web: {
@@ -1153,6 +1154,19 @@ if (!LITE) {
   gtao.updateGtaoMaterial({ radius: 0.5, distanceExponent: 1.5, thickness: 1, scale: 1.1, samples });
   gtao.updatePdMaterial({ radius: 6, rings: 2, samples });
   gtao.blendIntensity = 0.9;
+  // The AO pass draws everything with one plain material, which ignores alpha
+  // cut-outs: a leaf or a fringe would go in as a solid square and leave a
+  // square halo on the table. Props flagged noAO are left out of it.
+  let noAO = null;
+  const hideDefaults = gtao.overrideVisibility.bind(gtao);
+  gtao.overrideVisibility = () => {
+    hideDefaults();
+    if (!noAO) {
+      noAO = [];
+      scene.traverse((o) => { if (o.userData.noAO) noAO.push(o); });
+    }
+    for (const o of noAO) o.visible = false;
+  };
   composer.addPass(gtao);
 }
 composer.addPass(new ShaderPass(new THREE.ShaderMaterial({

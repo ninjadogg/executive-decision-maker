@@ -6,7 +6,7 @@ Press **ASK** (or Space / Enter). The light buzzes its way around every answer a
 
 ## Monthly themes
 
-The backdrop changes with the month. October is a moonlit Halloween night: carved jack-o'-lanterns with flickering candles, fallen leaves, tombstones, bare trees, bats and a cobweb on the device, with the answer wipe and loading screen in orange and purple. Other months use the studio set for now. Preview any theme with `?theme=halloween` or `?theme=studio`; themes live in `themes.js`.
+The backdrop changes with the month. October is a moonlit Halloween night: carved jack-o'-lanterns with flickering candles, fallen leaves, tombstones, bare trees, bats and a cobweb on the device, with the answer wipe and loading screen in orange and purple. November is a harvest table at golden hour: plank boards and a plaid runner, a wicker cornucopia spilling pumpkins, squash, apples, grapes and wheat, pillar candles flickering on a log round, a tied bundle of ornamental corn, fallen leaves with more drifting down, and corn shocks and hay bales out in the dusk, with the wipe and loading screen (a pixel turkey, a pumpkin and falling leaves) in harvest gold, pumpkin and cranberry. Other months use the studio set for now. Preview any theme with `?theme=halloween`, `?theme=thanksgiving` or `?theme=studio`; themes live in `themes.js`.
 
 ## Randomness
 
@@ -45,7 +45,7 @@ python3 -m http.server 8000
 
 ## Tests
 
-`tests/run_tests.py` runs end-to-end checks in Google Chrome under the site's real Content-Security-Policy: loading in both themes, decisions, power, keyboard and touch use, the wipe, mute, idle overlays, random.org being unreachable, an even spread of answers, graphics-context recovery, reduced motion and failure handling.
+`tests/run_tests.py` runs end-to-end checks in Google Chrome under the site's real Content-Security-Policy: loading in every theme, decisions, power, keyboard and touch use, the wipe, mute, idle overlays, random.org being unreachable, an even spread of answers, graphics-context recovery, reduced motion and failure handling.
 
 ```sh
 pip install playwright

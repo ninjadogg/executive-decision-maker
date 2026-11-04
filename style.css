@@ -99,5 +99,16 @@ body.quiet header, body.quiet #hint, body.quiet footer, body.quiet #mute, body.q
     #6b2fa0 84% 89%, #ff5a0a 89% 94%, #ff8a1c 94% 100%);
 }
 [data-theme="halloween"] #wipe .word { text-shadow: 3px 3px 0 #6b2fa0, 6px 6px 0 #ff5a0a, 9px 9px 0 #ff8a1c, 0 0 40px rgba(255, 140, 40, .5); }
+/* November: harvest gold, pumpkin and cranberry on roast-brown. */
+:root[data-theme="thanksgiving"] { --bg: #1e1209; }
+[data-theme="thanksgiving"] #loader { background: #1e1209; }
+[data-theme="thanksgiving"] #loader .stripes { background: linear-gradient(#e8a417 0 33.3%, #c8561a 33.3% 66.6%, #8e1f24 66.6%); }
+[data-theme="thanksgiving"] #loader h2 { text-shadow: 3px 3px 0 #8e1f24, 6px 6px 0 #c8561a; }
+[data-theme="thanksgiving"] #wipe .band {
+  background: linear-gradient(to bottom,
+    #e8a417 0 6%, #c8561a 6% 11%, #8e1f24 11% 16%, #1e1209 16% 84%,
+    #8e1f24 84% 89%, #c8561a 89% 94%, #e8a417 94% 100%);
+}
+[data-theme="thanksgiving"] #wipe .word { text-shadow: 3px 3px 0 #8e1f24, 6px 6px 0 #c8561a, 9px 9px 0 #e8a417, 0 0 40px rgba(240, 170, 60, .45); }
 #fail { display: none; position: fixed; inset: 0; z-index: 11; place-items: center; text-align: center; padding: 16px; color: var(--ink); background: var(--bg); }
 .noscript { position: fixed; inset: 0; z-index: 12; display: grid; place-items: center; margin: 0; padding: 16px; background: var(--bg); text-align: center; }

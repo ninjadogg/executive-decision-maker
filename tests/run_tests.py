@@ -121,7 +121,7 @@ def main():
             assert f"'sha256-{digest}'" in html, f'import map now hashes to sha256-{digest}'
         _()
 
-        for theme in ('studio', 'halloween'):
+        for theme in ('studio', 'halloween', 'thanksgiving'):
             @check(f'{theme}: loads cleanly (no errors, CSP violations or failed requests)')
             def _(theme=theme):
                 failed = []
@@ -256,7 +256,8 @@ def main():
             for q in ('&theme=__proto__', '&theme=nope&tex=1'):
                 pg = open_page(browser, debug + q)
                 assert not pg.errors, pg.errors
-                assert pg.evaluate('window.__theme') == 'studio' or pg.evaluate('new Date().getMonth()') == 9
+                month_theme = {9: 'halloween', 10: 'thanksgiving'}.get(pg.evaluate('new Date().getMonth()'), 'studio')
+                assert pg.evaluate('window.__theme') == month_theme, pg.evaluate('window.__theme')
                 pg.close()
         _()
 
